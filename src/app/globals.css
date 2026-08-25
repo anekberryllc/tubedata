@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/* Dark-committed palette. This product is a single dark surface by design. */
+:root {
+  --background: #070a12;
+  --foreground: #e8ecf5;
+  --surface: rgba(255, 255, 255, 0.025);
+  --border: rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: var(--foreground);
+  /* Was Arial, which silently overrode the Geist font loaded in layout.tsx. */
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+
+  /* Ambient glow painted directly onto the body background rather than via a
+     ::before overlay. An overlay would need `body > * { position: relative }`
+     to sit above it — and because Tailwind v4 ships its utilities inside
+     cascade layers, that unlayered rule would beat EVERY Tailwind positioning
+     utility, breaking `fixed` overlays like the auth dialog. */
+  background-color: var(--background);
+  background-image:
+    radial-gradient(60rem 40rem at 15% -10%, rgba(56, 189, 248, 0.10), transparent 60%),
+    radial-gradient(50rem 35rem at 90% 0%, rgba(129, 140, 248, 0.10), transparent 55%),
+    radial-gradient(40rem 30rem at 50% 100%, rgba(236, 72, 153, 0.05), transparent 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* Restrained scrollbars — the default light ones look broken on dark. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-rise {
+  animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
