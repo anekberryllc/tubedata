@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthHeader } from "@/components/AuthHeader";
 import { AuthDialogProvider } from "@/components/AuthDialog";
 import { PendingPurchase } from "@/components/PendingPurchase";
+import { SiteFooter } from "@/components/SiteFooter";
 import { signIn } from "@/auth";
 
 const geistSans = Geist({
@@ -71,6 +72,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <PendingPurchase />
           <AuthHeader />
           {children}
+          <SiteFooter />
         </AuthDialogProvider>
       </body>
     </html>

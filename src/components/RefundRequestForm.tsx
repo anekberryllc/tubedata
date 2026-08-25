@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SUPPORT_EMAIL } from "./SiteFooter";
 
 type ExistingRequest = {
   id: number;
@@ -13,7 +14,7 @@ const STATUS_COPY: Record<string, { label: string; tone: string; note: string }>
   open: {
     label: "Under review",
     tone: "bg-amber-400/10 text-amber-300 ring-amber-400/25",
-    note: "We have your request and will get back to you by email.",
+    note: `We have your request and will reply from ${SUPPORT_EMAIL}.`,
   },
   approved: {
     label: "Approved",
@@ -28,7 +29,7 @@ const STATUS_COPY: Record<string, { label: string; tone: string; note: string }>
   declined: {
     label: "Declined",
     tone: "bg-red-400/10 text-red-300 ring-red-400/25",
-    note: "This request was declined. Reply to our email if you think that is wrong.",
+    note: `This request was declined. Write to ${SUPPORT_EMAIL} if you think that is wrong.`,
   },
 };
 
