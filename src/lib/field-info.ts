@@ -27,6 +27,14 @@ export const FIELD_INFO: Record<string, FieldInfo> = {
       "Views appear under the title, likes on the thumbs-up button, and the comment count above the comment section. Dislikes were removed from the public API in December 2021, so no tool can show them.",
   },
 
+  earnings: {
+    what:
+      "An estimate of lifetime ad revenue, calculated as views ÷ 1,000 × an assumed RPM band for this category, length and audience type. It is our own model, not a figure from YouTube, so it is shown as a range rather than a number.",
+    where:
+      "Nowhere. Only the uploader can see real revenue, in YouTube Studio. The range cannot know whether the channel is monetised at all, where its audience is (US traffic pays several times what most other markets do), or anything earned outside ads through sponsorships, memberships or merch.",
+    hidden: true,
+  },
+
   thumbnails: {
     what:
       "Every preview image YouTube generated for this video, from 120px up to 1280×720, each with a direct link.",

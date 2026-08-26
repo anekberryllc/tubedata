@@ -3,22 +3,25 @@
 import { useState } from "react";
 import { useAuthDialog } from "./AuthDialog";
 import { rememberPurchase } from "./PendingPurchase";
+import type { BillingInterval } from "@/lib/pricing";
 
 /**
- * Starts Stripe Checkout for Plus.
+ * Starts Stripe Checkout for Pro, the only paid tier.
  *
- * Single implementation of the upgrade path — the locked history panel and the
- * daily-limit banner both use it, so the 401-means-sign-in handling only has to
- * be right once.
+ * Single implementation of the upgrade path — the locked panels and the
+ * daily-limit banner all use it, so the 401-means-sign-in handling only has to
+ * be right once. There is no `plan` prop — one paid tier, nothing to choose —
+ * only an `interval`, which picks how that same tier is billed.
  */
 export function UpgradeButton({
-  label = "Get Plus",
-  plan = "paid",
+  label = "Get Pro",
+  interval = "month",
   className,
   onError,
 }: {
   label?: string;
-  plan?: "paid" | "pro";
+  /** Which billing interval to buy. Same tier either way. */
+  interval?: BillingInterval;
   className?: string;
   onError?: (message: string) => void;
 }) {
@@ -40,7 +43,7 @@ export function UpgradeButton({
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan: "pro", interval }),
       });
 
       if (res.status === 401) {
@@ -48,7 +51,7 @@ export function UpgradeButton({
         // bouncing to Auth.js's unstyled default page. Park the intent first:
         // sign-in is a full redirect, and coming back with nothing having
         // happened reads as a broken button.
-        rememberPurchase({ type: "plan", plan });
+        rememberPurchase({ type: "plan", interval });
         setBusy(false);
         openAuthDialog("unlock");
         return;

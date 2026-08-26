@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db, users, creditPurchases } from "@/db";
 import { stripe, planForPrice, ACTIVE_STATUSES } from "@/lib/stripe";
+import { recordDonation } from "@/lib/record-donation";
 
 /**
  * Add prepaid lookups to a user's balance, exactly once.
@@ -80,15 +81,18 @@ export async function POST(req: NextRequest) {
       const s = event.data.object as Stripe.Checkout.Session;
 
       // Three kinds of session arrive here and they must not be confused.
-      // Donations in particular must fall through to NOTHING: the `?? "paid"`
-      // default below would otherwise hand a $3 tipper a free Plus plan.
+      // Both non-subscription kinds break out BEFORE the plan-granting code
+      // below: its `?? "pro"` default would otherwise hand a $3 tipper a free
+      // Pro plan. Recording a donation is bookkeeping only — recordDonation
+      // never touches `users`.
       if (s.mode !== "subscription") {
         if (s.metadata?.kind === "lookup_pack") await grantLookupCredits(s);
+        else if (s.metadata?.kind === "donation") await recordDonation(s);
         break;
       }
 
       const userId = s.client_reference_id ?? s.metadata?.userId;
-      const plan = s.metadata?.plan ?? "paid";
+      const plan = s.metadata?.plan ?? "pro";
       const customerId = typeof s.customer === "string" ? s.customer : s.customer?.id;
 
       if (userId) {

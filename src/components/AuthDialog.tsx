@@ -51,7 +51,7 @@ const COPY: Record<Reason, { title: string; body: string }> = {
   },
   unlock: {
     title: "Sign in to upgrade",
-    body: "A subscription is tied to your account, so you'll need to sign in before upgrading to Plus.",
+    body: "A subscription is tied to your account, so you'll need to sign in before upgrading to Pro.",
   },
 };
 
@@ -157,7 +157,7 @@ export function AuthDialogProvider({
                 <div className="mt-6 space-y-2 border-t border-white/[0.07] pt-5">
                   {[
                     "Every field stays free — tags, topics, history, raw JSON",
-                    "Plus adds unlimited lookups and your saved lookup history",
+                    "Pro adds unlimited lookups and your saved lookup history",
                     "No password to remember or reset",
                   ].map((line) => (
                     <div key={line} className="flex gap-2.5 text-xs leading-relaxed text-slate-500">

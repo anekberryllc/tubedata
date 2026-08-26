@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, sql as raw } from "drizzle-orm";
 import { db, lookups } from "@/db";
-import { isPremium, type Plan } from "./plans";
+import { isPro, type Plan } from "./plans";
 
 /**
  * Volume limiting, backed by the `lookups` table we already write to.
@@ -81,7 +81,7 @@ export async function checkRateLimit(
   ip: string,
   sessionPlan?: string
 ): Promise<RateLimitVerdict> {
-  if (sessionPlan && isPremium(sessionPlan as Plan)) {
+  if (sessionPlan && isPro(sessionPlan as Plan)) {
     return { allowed: true, used: 0, remaining: null, unlimited: true, retryAfterSeconds: 0 };
   }
 

@@ -2,15 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { lookupVideo } from "@/lib/video-service";
 import { checkRateLimit, getClientIp, getLastLookupVideoId, DAILY_LIMIT } from "@/lib/rate-limit";
 import { extractVideoId } from "@/lib/youtube";
-import { resolvePlan } from "@/lib/plans";
+import { resolvePlan, isPro } from "@/lib/plans";
+import { estimateEarnings } from "@/lib/earnings";
 import { auth } from "@/auth";
 import { spendCredit, refundCredit, getCredits } from "@/lib/credits";
 
 /**
  * Server-only: neither YOUTUBE_API_KEY nor DATABASE_URL reaches the browser.
  *
- * The response is NOT gated by plan. Every field is free to everyone — what
- * paying buys is lookup history, Pro Tools, and freedom from the daily cap.
+ * No field OBTAINED FROM YOUTUBE is gated by plan — tags, thumbnails, topics,
+ * stats history and the raw JSON are all free to everyone, and that stays true.
+ * What paying buys is lookup history, freedom from the daily cap, and Pro
+ * Tools: figures TubeData derives itself, which are ours to sell. `earnings` is
+ * the first of those, so it is computed here and withheld below Pro rather than
+ * being sent and hidden in CSS.
  */
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get("url");
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
         {
           ok: false,
           reason: "rate_limited",
-          message: `You have used all ${DAILY_LIMIT} free lookups for today. Buy a pack of lookups, subscribe to Plus for unlimited, or come back tomorrow.`,
+          message: `You have used all ${DAILY_LIMIT} free lookups for today. Buy a pack of lookups, subscribe to Pro for unlimited, or come back tomorrow.`,
           retryAfterSeconds: limit.retryAfterSeconds,
           rateLimit: { limit: DAILY_LIMIT, remaining: 0, unlimited: false },
           credits: 0,
@@ -80,9 +85,24 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // `plan` is still reported so the UI can label the account, but it no longer
-  // decides what is in this payload.
+  // `plan` labels the account, and now also decides one thing: whether the
+  // earnings estimate is included.
   const plan = resolvePlan(req.nextUrl.searchParams, session?.user?.plan);
+
+  // A prepaid lookup buys the Pro treatment FOR THAT LOOKUP. Someone who paid
+  // for this one request should get everything the request can produce, not a
+  // locked panel — they are paying more per lookup than a subscriber does.
+  //
+  // Deliberately per-request and not sticky: it grants nothing beyond this
+  // response, and never touches `plan`. History stays a subscriber feature
+  // because it is a property of the account, not of a single lookup.
+  const spentCredit = creditsRemaining !== null;
+
+  // resolvePlan's ?plan=pro dev override is fine to honour here, unlike in
+  // rate limiting: the worst it can do in development is reveal a figure we
+  // compute ourselves, and in production the override does not exist.
+  const earnings =
+    isPro(plan) || spentCredit ? estimateEarnings(result.data) : null;
 
   // Report what is left AFTER this request. A repeat consumed nothing, so the
   // counter must not move — that visible tick is the whole point of the rule.
@@ -95,6 +115,9 @@ export async function GET(req: NextRequest) {
       ok: true,
       plan,
       data: { ...result.data, tagCount: result.data.tags.length },
+      // null below Pro. The UI shows a locked panel on null rather than
+      // guessing, so the gate lives in exactly one place.
+      earnings,
       statsHistory: result.statsHistory,
       cacheHit: result.cacheHit,
       quotaUnits: result.quotaUnits,
@@ -110,7 +133,7 @@ export async function GET(req: NextRequest) {
         (session?.user?.id ? await getCredits(session.user.id) : null),
       // True when THIS lookup came out of the prepaid balance, so the UI can
       // say so rather than silently drawing down a purchase.
-      spentCredit: creditsRemaining !== null,
+      spentCredit,
       // True when this was an immediate repeat and cost nothing.
       repeat: isRepeat,
     },

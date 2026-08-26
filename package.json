@@ -2,6 +2,10 @@
   "name": "webapp",
   "version": "0.1.0",
   "private": true,
+  "//engines": "Next 16.3.2 requires Node >=20.9.0. Pinned so a host's builder (Railway/Railpack, Nixpacks, Docker) picks a version that works instead of defaulting to whatever is current and failing the build later.",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db, users } from "@/db";
-import { stripe, PRICE_BY_PLAN } from "@/lib/stripe";
+import { stripe, PRICE_BY_INTERVAL } from "@/lib/stripe";
+import { isBillingInterval, type BillingInterval } from "@/lib/pricing";
 
 /**
  * Creates a Stripe Checkout session for the signed-in user and returns its URL.
@@ -18,16 +19,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const body = (await req.json().catch(() => ({}))) as { plan?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    plan?: string;
+    interval?: string;
+  };
   const plan = body.plan;
-  if (plan !== "paid" && plan !== "pro") {
+  if (plan !== "pro") {
     return NextResponse.json({ ok: false, message: "Unknown plan." }, { status: 400 });
   }
 
-  const priceId = PRICE_BY_PLAN[plan];
+  // Monthly unless the caller asks for annual. Defaulting rather than requiring
+  // it keeps older clients — and the pending-purchase intents already sitting
+  // in someone's sessionStorage — working unchanged.
+  const interval: BillingInterval = isBillingInterval(body.interval)
+    ? body.interval
+    : "month";
+
+  const priceId = PRICE_BY_INTERVAL[interval];
   if (!priceId) {
     return NextResponse.json(
-      { ok: false, message: `No Stripe price configured for "${plan}".` },
+      { ok: false, message: `No Stripe price configured for Pro billed by ${interval}.` },
       { status: 500 }
     );
   }
@@ -60,8 +71,10 @@ export async function POST(req: NextRequest) {
     cancel_url: `${origin}/`,
     // Echoed back on the webhook so we know which user to upgrade.
     client_reference_id: user.id,
-    metadata: { userId: user.id, plan },
-    subscription_data: { metadata: { userId: user.id, plan } },
+    // `interval` is recorded for support and analytics only — the webhook grants
+    // access from `plan`, so a mislabelled interval can never affect entitlement.
+    metadata: { userId: user.id, plan, interval },
+    subscription_data: { metadata: { userId: user.id, plan, interval } },
   });
 
   return NextResponse.json({ ok: true, url: checkout.url });

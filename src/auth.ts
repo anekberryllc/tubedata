@@ -19,9 +19,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     session({ session, user }) {
-      // Expose the user's id and plan to server code that reads the session.
+      // Expose the user's id, plan and credit balance to server code that reads
+      // the session. `user` is the full database row under the database session
+      // strategy, so none of this costs an extra query.
+      const row = user as typeof user & { plan?: string; lookupCredits?: number };
       session.user.id = user.id;
-      session.user.plan = (user as typeof user & { plan?: string }).plan as Plan ?? "free";
+      session.user.plan = (row.plan as Plan) ?? "free";
+      // Only the value at session-read time. It goes stale the moment a lookup
+      // spends one, which is why the header updates itself client-side.
+      session.user.lookupCredits = row.lookupCredits ?? 0;
       return session;
     },
   },

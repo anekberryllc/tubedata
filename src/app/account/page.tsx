@@ -3,11 +3,17 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db, users, refundRequests } from "@/db";
-import { PLAN_LABELS, isPremium, type Plan } from "@/lib/plans";
+import { PLAN_LABELS, isPro, type Plan } from "@/lib/plans";
 import { LoginButton } from "@/components/AuthDialog";
 import { ManageSubscription } from "@/components/ManageSubscription";
 import { RefundRequestForm } from "@/components/RefundRequestForm";
 import { UpgradeButton } from "@/components/UpgradeButton";
+import {
+  formatUsd,
+  PRO_PRICE_CENTS,
+  ANNUAL_SAVING_PERCENT,
+  ANNUAL_MONTHLY_EQUIVALENT_CENTS,
+} from "@/lib/pricing";
 import { BuyLookups } from "@/components/BuyLookups";
 import { PurchaseHistory } from "@/components/PurchaseHistory";
 
@@ -59,7 +65,7 @@ export default async function AccountPage() {
 
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   const plan = (user?.plan ?? "free") as Plan;
-  const premium = isPremium(plan);
+  const pro = isPro(plan);
 
   // Anyone who has ever been billed can ask for a refund, including someone who
   // has already cancelled — that is exactly when people ask.
@@ -80,7 +86,7 @@ export default async function AccountPage() {
         <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
           <span
             className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${
-              premium
+              pro
                 ? "bg-gradient-to-r from-amber-400/20 to-orange-400/20 text-amber-200 ring-1 ring-amber-400/30"
                 : "bg-white/5 text-slate-400 ring-1 ring-white/10"
             }`}
@@ -90,7 +96,7 @@ export default async function AccountPage() {
 
           <div className="min-w-[12rem] flex-1">
             <p className="text-sm text-slate-300">
-              {premium
+              {pro
                 ? "Unlimited lookups and your full lookup history are unlocked."
                 : "You're on the free plan. Every field is free; lookups are capped at 10 per day and history is not saved for you to browse."}
             </p>
@@ -102,27 +108,38 @@ export default async function AccountPage() {
       </Section>
 
       <Section title="Subscription">
-        {premium || everPaid ? (
+        {pro || everPaid ? (
           <ManageSubscription />
         ) : (
           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
             <p className="text-sm text-slate-400">
-              No subscription yet. Plus gives you unlimited lookups instead of 10 a day,
+              No subscription yet. Pro gives you unlimited lookups instead of 10 a day,
               and your saved lookup history.
             </p>
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <UpgradeButton
-                label="Upgrade to Plus — $9/mo"
+                interval="year"
+                label={`Upgrade to Pro — ${formatUsd(PRO_PRICE_CENTS.year)}/yr`}
                 className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-50"
               />
+              <UpgradeButton
+                interval="month"
+                label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-white/25 hover:text-white disabled:opacity-50"
+              />
             </div>
+            <p className="mt-2.5 text-xs text-slate-500">
+              Yearly saves {ANNUAL_SAVING_PERCENT}% —{" "}
+              {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo, billed once a year. Same Pro
+              either way; you can switch later from the billing portal.
+            </p>
           </div>
         )}
       </Section>
 
       <Section title="Prepaid lookups">
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-          {premium ? (
+          {pro ? (
             <p className="text-sm text-slate-400">
               Your plan already includes unlimited lookups, so there is nothing to buy.
               {(user?.lookupCredits ?? 0) > 0 && (

@@ -10,5 +10,5 @@ export const DONATION_TIERS = [
 
 export type DonationTier = (typeof DONATION_TIERS)[number];
 
-export const formatUsd = (cents: number) =>
-  `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+// One implementation of money formatting, shared with subscription pricing.
+export { formatUsd } from "./pricing";

@@ -3,6 +3,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { VideoMetadata } from "@/lib/youtube";
 import type { Plan } from "@/lib/plans";
+import type { EarningsEstimate } from "@/lib/earnings";
+import { LockedPanel } from "@/components/LockedPanel";
+import { publishCredits } from "@/components/credits-channel";
+import {
+  formatUsd,
+  PRO_PRICE_CENTS,
+  ANNUAL_SAVING_PERCENT,
+  ANNUAL_MONTHLY_EQUIVALENT_CENTS,
+} from "@/lib/pricing";
 import { SectionHeading } from "@/components/InfoHint";
 import { CopyButton } from "@/components/CopyButton";
 import { UpgradeButton } from "@/components/UpgradeButton";
@@ -21,6 +30,10 @@ type RateLimit = { limit: number; remaining: number | null; unlimited: boolean }
 
 const n = (x?: number | null) => (x === null || x === undefined ? "—" : x.toLocaleString());
 
+/** Cents only matter at the low end, where a Short can earn less than a dollar. */
+const usd = (x: number) =>
+  x >= 10 ? `$${Math.round(x).toLocaleString()}` : `$${x.toFixed(2)}`;
+
 /** 1,807,661,715 -> 1.8B, for the big stat tiles. */
 function compact(x?: number | null) {
   if (x === null || x === undefined) return "—";
@@ -28,6 +41,28 @@ function compact(x?: number | null) {
   if (x >= 1e6) return (x / 1e6).toFixed(x >= 1e7 ? 0 : 1) + "M";
   if (x >= 1e3) return (x / 1e3).toFixed(x >= 1e4 ? 0 : 1) + "K";
   return String(x);
+}
+
+/** Every reset time is quoted in Eastern, so the label is never ambiguous. */
+const RESET_TZ = "America/New_York";
+
+/**
+ * Date and time at which the next free lookup unlocks — "Aug 27 at 1:29 PM ET".
+ *
+ * The allowance is a ROLLING 24h window, not a midnight reset: a slot frees
+ * 24h after the lookup that used it. So this is the moment ONE lookup comes
+ * back — the oldest ageing out — and the copy must promise no more than that.
+ * Someone who spread their ten across yesterday gets them back in a trickle.
+ *
+ * Pinned to Eastern and to en-US rather than the visitor's own locale, so the
+ * output is one fixed string worldwide. That also makes it deterministic
+ * between server and client — nothing here reads the browser's timezone.
+ */
+function resetLabel(at: Date) {
+  const date = at.toLocaleDateString("en-US", { timeZone: RESET_TZ, month: "short", day: "numeric" });
+  const time = at.toLocaleTimeString("en-US", { timeZone: RESET_TZ, hour: "numeric", minute: "2-digit" });
+
+  return `${date} at ${time} ET`;
 }
 
 export default function Home() {
@@ -41,9 +76,24 @@ export default function Home() {
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Null both when the caller is below Pro and when there is nothing to
+  // estimate from, which the locked panel and the empty state handle alike.
+  const [earnings, setEarnings] = useState<EarningsEstimate | null>(null);
   const [rateLimit, setRateLimit] = useState<RateLimit | null>(null);
+  // Stored as an absolute instant, not a countdown, so it stays truthful in a
+  // tab left open for an hour.
+  const [resetAt, setResetAt] = useState<Date | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
   const didInit = useRef(false);
+  /**
+   * The dev-only ?plan= preview, captured on mount because the init effect
+   * strips the query string before the first lookup runs.
+   *
+   * Forwarding it is a convenience for previewing the paid view, NOT a
+   * permission: resolvePlan ignores the parameter outside development, so the
+   * server remains the only thing deciding what a caller may see.
+   */
+  const previewPlan = useRef<string | null>(null);
   const [upgraded, setUpgraded] = useState(false);
   const [donated, setDonated] = useState(false);
   const [purchased, setPurchased] = useState<number | null>(null);
@@ -53,6 +103,8 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setErrorReason(null);
+    setResetAt(null);
+    setEarnings(null);
     setData(null);
     setHistory([]);
     setMeta(null);
@@ -62,6 +114,7 @@ export default function Home() {
     sessionStorage.setItem("lastLookup", targetUrl);
 
     const qs = new URLSearchParams({ url: targetUrl });
+    if (previewPlan.current) qs.set("plan", previewPlan.current);
     const res = await fetch(`/api/video?${qs}`);
     const json = await res.json();
 
@@ -69,16 +122,25 @@ export default function Home() {
     if (json.ok) {
       setData(json.data);
       setHistory(json.statsHistory ?? []);
+      setEarnings(json.earnings ?? null);
       setPlan(json.plan);
       setMeta({ cacheHit: json.cacheHit, quotaUnits: json.quotaUnits });
       setRateLimit(json.rateLimit ?? null);
       setCredits(json.credits ?? null);
+      publishCredits(json.credits ?? null);
     } else {
       setError(json.message ?? "Something went wrong.");
       setErrorReason(json.reason ?? null);
       // A 429 carries the allowance too, so the counter stays truthful.
       if (json.rateLimit) setRateLimit(json.rateLimit);
-      if (json.credits !== undefined) setCredits(json.credits);
+      // Converted to an instant on arrival, while the elapsed time is still 0.
+      if (typeof json.retryAfterSeconds === "number") {
+        setResetAt(new Date(Date.now() + json.retryAfterSeconds * 1000));
+      }
+      if (json.credits !== undefined) {
+        setCredits(json.credits);
+        publishCredits(json.credits);
+      }
     }
   }, []);
 
@@ -91,6 +153,8 @@ export default function Home() {
     didInit.current = true;
 
     const params = new URLSearchParams(window.location.search);
+    // Read before the replaceState below wipes it.
+    previewPlan.current = params.get("plan");
     const justUpgraded = params.get("upgraded") === "1";
     const justDonated = params.get("donated") === "1";
     const boughtCredits = Number(params.get("credits") ?? 0);
@@ -228,14 +292,38 @@ export default function Home() {
                   You have used all {rateLimit?.limit ?? 10} free lookups for today.
                 </p>
                 <p className="mt-1 text-sm text-amber-200/70">
-                  Plus gives you unlimited lookups and your full lookup history — or come
-                  back tomorrow.
+                  {resetAt ? (
+                    <>
+                      Your next free lookup unlocks{" "}
+                      <span className="font-medium text-amber-100">{resetLabel(resetAt)}</span>.
+                      Pro gives you unlimited lookups and your full lookup history.
+                    </>
+                  ) : (
+                    <>
+                      Pro gives you unlimited lookups and your full lookup history — or come
+                      back tomorrow.
+                    </>
+                  )}
                 </p>
               </div>
-              <UpgradeButton
-                label="Get Plus — $9/mo"
-                className="shrink-0 rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/10 transition hover:brightness-110 disabled:opacity-50"
-              />
+              {/* Yearly leads because it is the better deal; monthly stays one
+                  click away rather than being buried. */}
+              <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                <UpgradeButton
+                  interval="year"
+                  label={`Get Pro — ${formatUsd(PRO_PRICE_CENTS.year)}/yr`}
+                  className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/10 transition hover:brightness-110 disabled:opacity-50"
+                />
+                <p className="text-center text-[11px] text-amber-200/60">
+                  Save {ANNUAL_SAVING_PERCENT}% —{" "}
+                  {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo billed yearly
+                </p>
+                <UpgradeButton
+                  interval="month"
+                  label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
+                  className="rounded-xl border border-amber-400/25 px-4 py-1.5 text-xs font-medium text-amber-200/80 transition hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-50"
+                />
+              </div>
             </div>
 
             <div className="mt-4 border-t border-amber-400/15 pt-4">
@@ -339,6 +427,79 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* ---------- ESTIMATED EARNINGS (Pro) ---------- */}
+              <div>
+                <SectionHeading field="earnings">Estimated earnings</SectionHeading>
+
+                {earnings ? (
+                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Lifetime range
+                        </div>
+                        <div className="mt-1.5 text-2xl font-semibold tabular-nums text-white">
+                          {/* A low-view Short rounds to $0.00 at both ends, which
+                              reads as a bug rather than as a small number. */}
+                          {earnings.high < 0.01
+                            ? "Under $0.01"
+                            : `${usd(earnings.low)} – ${usd(earnings.high)}`}
+                        </div>
+                        <div className="mt-0.5 text-[11px] tabular-nums text-slate-600">
+                          {n(earnings.views)} views ÷ 1,000 × RPM
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Assumed RPM
+                        </div>
+                        <div className="mt-1.5 text-2xl font-semibold tabular-nums text-white">
+                          ${earnings.rpmLow} – ${earnings.rpmHigh}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-600">
+                          {earnings.category}
+                          {earnings.format === "short" && " · Short"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {earnings.adjustments.length > 0 && (
+                      <ul className="mt-4 space-y-1 border-t border-white/[0.06] pt-3">
+                        {earnings.adjustments.map((a) => (
+                          <li key={a} className="text-[11px] text-slate-500">
+                            · {a}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <p className="mt-3 border-t border-white/[0.06] pt-3 text-[11px] leading-relaxed text-slate-600">
+                      TubeData estimate, not a YouTube figure. Assumes the channel is
+                      monetised, and counts ad revenue only — sponsorships, memberships and
+                      merch are invisible from public data.
+                    </p>
+                  </div>
+                ) : (
+                  // Label states the method rather than repeating the heading
+                  // above it — what is behind the lock is the RPM model.
+                  <LockedPanel label="Views × assumed RPM">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {["Lifetime range", "Assumed RPM"].map((heading) => (
+                        <div key={heading}>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            {heading}
+                          </div>
+                          <div className="mt-1.5 text-2xl font-semibold tabular-nums text-white">
+                            $0,000 – $0,000
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </LockedPanel>
+                )}
               </div>
 
               {/* ---------- TAGS ---------- */}

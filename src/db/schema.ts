@@ -102,6 +102,38 @@ export const refundRequests = pgTable("refund_requests", {
 ]);
 
 /**
+ * One row per completed "buy me a coffee" tip.
+ *
+ * Recorded ONLY so the tips are visible and countable in the product — a
+ * donation grants nothing. Nothing in this table may ever be read to decide
+ * entitlement; see the webhook, where the donation branch is deliberately kept
+ * away from the code that sets `users.plan`.
+ *
+ * `userId` is nullable on purpose: tipping does not require an account, and
+ * refusing to record anonymous tips would lose the majority of them. `email` is
+ * snapshotted from the Stripe session so an anonymous tipper can still be
+ * thanked.
+ *
+ * UNIQUE on the session id for the same reason as credit_purchases: Stripe
+ * retries webhooks, and a redelivery must not double-count the tip.
+ */
+export const donations = pgTable("donations", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id"),
+  stripeSessionId: text("stripe_session_id").notNull().unique(),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  /** Which preset tier was clicked, e.g. "coffee". */
+  tierId: text("tier_id"),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  email: text("email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("donations_user_idx").on(t.userId, t.createdAt),
+  index("donations_time_idx").on(t.createdAt),
+]);
+
+/**
  * One row per completed lookup-pack purchase.
  *
  * Exists for idempotency as much as for audit: Stripe retries webhooks, and

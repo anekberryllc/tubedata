@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { subscribeCredits } from "./credits-channel";
 
 /**
  * Signed-in user menu.
@@ -17,6 +18,7 @@ export function UserMenu({
   image,
   planLabel,
   premium,
+  initialCredits,
   signOutAction,
 }: {
   email: string | null;
@@ -24,11 +26,18 @@ export function UserMenu({
   image: string | null;
   planLabel: string;
   premium: boolean;
+  /** Balance from the session at page load; kept current by credits-channel. */
+  initialCredits: number;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [credits, setCredits] = useState(initialCredits);
   const wrap = useRef<HTMLDivElement>(null);
+
+  // Every lookup reports the balance after it ran, so the header follows along
+  // instead of showing the number that was true when the page loaded.
+  useEffect(() => subscribeCredits(setCredits), []);
 
   useEffect(() => {
     if (!open) return;
@@ -103,15 +112,24 @@ export function UserMenu({
           <div className="border-b border-white/[0.07] px-4 py-3">
             <p className="truncate text-[13px] font-medium text-slate-200">{name ?? "Signed in"}</p>
             {email && <p className="mt-0.5 truncate text-[11px] text-slate-500">{email}</p>}
-            <span
-              className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${
-                premium
-                  ? "bg-gradient-to-r from-amber-400/20 to-orange-400/20 text-amber-200 ring-1 ring-amber-400/30"
-                  : "bg-white/5 text-slate-400 ring-1 ring-white/10"
-              }`}
-            >
-              {planLabel}
-            </span>
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span
+                className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${
+                  premium
+                    ? "bg-gradient-to-r from-amber-400/20 to-orange-400/20 text-amber-200 ring-1 ring-amber-400/30"
+                    : "bg-white/5 text-slate-400 ring-1 ring-white/10"
+                }`}
+              >
+                {planLabel}
+              </span>
+              {/* Only shown once someone has actually bought lookups — a "0
+                  prepaid remaining" on every free account would be noise. */}
+              {credits > 0 && (
+                <span className="text-[11px] tabular-nums text-sky-300">
+                  ({credits} prepaid remaining)
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="p-1.5">

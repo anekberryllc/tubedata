@@ -6,6 +6,8 @@ declare module "next-auth" {
     user: {
       id: string;
       plan: Plan;
+      /** Prepaid lookup balance at the time the session was read. */
+      lookupCredits: number;
     } & DefaultSession["user"];
   }
 }

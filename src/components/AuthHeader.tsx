@@ -42,6 +42,7 @@ export async function AuthHeader() {
               image={user.image ?? null}
               planLabel={PLAN_LABELS[plan]}
               premium={premium}
+              initialCredits={user.lookupCredits ?? 0}
               signOutAction={async () => {
                 "use server";
                 // No redirect here — the client forces a full page load so

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@/auth";
-import { isPremium, type Plan } from "@/lib/plans";
+import { isPro, type Plan } from "@/lib/plans";
 import { formatDuration } from "@/lib/youtube";
 import { getHistoryCount, getLookupHistory } from "@/lib/lookup-history";
 import { LockedPanel } from "@/components/LockedPanel";
@@ -63,7 +63,7 @@ export default async function HistoryPage() {
 
   // Free users get the count, not the contents — the rows are being recorded
   // either way, so upgrading reveals a real backlog rather than an empty page.
-  if (!isPremium(plan)) {
+  if (!isPro(plan)) {
     const count = await getHistoryCount(userId);
 
     return (

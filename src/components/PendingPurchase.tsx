@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { BillingInterval } from "@/lib/pricing";
 
 export const PENDING_PURCHASE_KEY = "pendingPurchase";
 
 export type PurchaseIntent =
   | { type: "pack"; pack: string }
-  | { type: "plan"; plan: "paid" | "pro" };
+  // No plan field: Pro is the only subscription there is to resume. The
+  // interval is carried because it is a real choice the user already made, and
+  // sending them back to monthly after they picked annual would be a bug they
+  // only notice on the receipt.
+  | { type: "plan"; interval?: BillingInterval };
 
 /**
  * Remember what the user was trying to buy before we sent them to sign in.
@@ -61,7 +66,9 @@ export function PendingPurchase() {
     const endpoint =
       intent.type === "pack" ? "/api/stripe/buy-lookups" : "/api/stripe/checkout";
     const body =
-      intent.type === "pack" ? { pack: intent.pack } : { plan: intent.plan };
+      intent.type === "pack"
+        ? { pack: intent.pack }
+        : { plan: "pro", interval: intent.interval ?? "month" };
 
     // Deferred rather than called straight from the effect body: setting state
     // synchronously there triggers a cascading render (react-hooks/set-state-in-effect).
