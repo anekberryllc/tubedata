@@ -1,4 +1,4 @@
-export const SUPPORT_EMAIL = "support@tubedata.io";
+import { SUPPORT_EMAIL } from "@/lib/support";
 
 /**
  * Deliberately one muted line.

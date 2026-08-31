@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db, users, accounts, sessions, verificationTokens } from "@/db";
 import type { Plan } from "@/lib/plans";
+import { toRole } from "@/lib/roles";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -22,9 +23,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Expose the user's id, plan and credit balance to server code that reads
       // the session. `user` is the full database row under the database session
       // strategy, so none of this costs an extra query.
-      const row = user as typeof user & { plan?: string; lookupCredits?: number };
+      const row = user as typeof user & {
+        plan?: string;
+        lookupCredits?: number;
+        role?: string;
+        blockedAt?: Date | null;
+        blockedReason?: string | null;
+      };
       session.user.id = user.id;
       session.user.plan = (row.plan as Plan) ?? "free";
+      session.user.role = toRole(row.role);
+      // Read from the user row on EVERY request, which is only true because
+      // sessions are database-backed. A block therefore bites on the blocked
+      // user's very next request instead of whenever a JWT would have expired —
+      // the reason not to switch this app to the JWT strategy.
+      session.user.blocked = !!row.blockedAt;
+      session.user.blockedReason = row.blockedReason ?? null;
       // Only the value at session-read time. It goes stale the moment a lookup
       // spends one, which is why the header updates itself client-side.
       session.user.lookupCredits = row.lookupCredits ?? 0;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
+import { blockedMessage } from "@/lib/roles";
 import { db, users } from "@/db";
 import { stripe, PRICE_BY_INTERVAL } from "@/lib/stripe";
 import { isBillingInterval, type BillingInterval } from "@/lib/pricing";
@@ -16,6 +17,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { ok: false, message: "Sign in first." },
       { status: 401 }
+    );
+  }
+
+  // Never charge an account that is not allowed to use what it would be
+  // buying. Refusing at the door is far cheaper than the refund afterwards.
+  if (session.user.blocked) {
+    return NextResponse.json(
+      { ok: false, message: blockedMessage(session.user.blockedReason) },
+      { status: 403 }
     );
   }
 

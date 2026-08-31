@@ -97,6 +97,16 @@ export const refundRequests = pgTable("refund_requests", {
   status: text("status").notNull().default("open"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+
+  // The refund itself, once money has actually moved. stripeRefundId is the
+  // proof it happened: the action refuses to refund a request that has one,
+  // and a partial unique index makes the database refuse a duplicate too.
+  // Camel-cased and quoted to match the columns added alongside it.
+  stripeRefundId: text("stripeRefundId"),
+  stripeChargeId: text("stripeChargeId"),
+  refundedAmountCents: integer("refundedAmountCents"),
+  /** The admin who authorised the money leaving. Kept for audit. */
+  refundedBy: text("refundedBy"),
 }, (t) => [
   index("refund_user_idx").on(t.userId, t.createdAt),
 ]);

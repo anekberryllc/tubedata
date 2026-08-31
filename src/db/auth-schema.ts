@@ -22,6 +22,19 @@ export const users = pgTable("user", {
   // Prepaid lookups, spent only after the daily free allowance runs out.
   // Never expire. Granted by the webhook, decremented in the video route.
   lookupCredits: integer("lookupCredits").notNull().default(0),
+
+  // 'member' | 'admin'. Deliberately separate from `plan`: paying for Pro must
+  // never grant moderation powers, and an admin need not be a subscriber.
+  // Seeded by scripts/add-user-roles.mjs; new signups default to 'member'.
+  role: text("role").notNull().default("member"),
+
+  // Blocking. The timestamp IS the flag — null means the account is active.
+  // Stored as when/why/by-whom rather than a bare boolean, because "why is this
+  // account locked out" is the first question anyone asks about a blocked user.
+  blockedAt: timestamp("blockedAt", { withTimezone: true, mode: "date" }),
+  blockedReason: text("blockedReason"),
+  /** The acting admin's user id. Not a foreign key: the note must outlive them. */
+  blockedBy: text("blockedBy"),
 });
 
 export const accounts = pgTable(

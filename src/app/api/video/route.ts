@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { lookupVideo } from "@/lib/video-service";
-import { checkRateLimit, getClientIp, getLastLookupVideoId, DAILY_LIMIT } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIp, getLastLookupVideoId } from "@/lib/rate-limit";
+import {
+  FREE_DAILY_LOOKUPS,
+  PRO_ALLOWANCE_LABEL,
+  formatLookups,
+} from "@/lib/limits";
 import { extractVideoId } from "@/lib/youtube";
-import { resolvePlan, isPro } from "@/lib/plans";
+import { resolvePlan } from "@/lib/plans";
 import { estimateEarnings } from "@/lib/earnings";
 import { auth } from "@/auth";
+import { blockedMessage } from "@/lib/roles";
 import { spendCredit, refundCredit, getCredits } from "@/lib/credits";
 
 /**
  * Server-only: neither YOUTUBE_API_KEY nor DATABASE_URL reaches the browser.
  *
- * No field OBTAINED FROM YOUTUBE is gated by plan — tags, thumbnails, topics,
- * stats history and the raw JSON are all free to everyone, and that stays true.
- * What paying buys is lookup history, freedom from the daily cap, and Pro
- * Tools: figures TubeData derives itself, which are ours to sell. `earnings` is
- * the first of those, so it is computed here and withheld below Pro rather than
- * being sent and hidden in CSS.
+ * NOTHING in the response is gated by plan any more — not the fields YouTube
+ * returns, and not `earnings`, which TubeData derives itself and which used to
+ * be Pro-only. A lookup returns everything it can to everyone; what paying
+ * buys is lookup history and freedom from the daily cap. See lib/plans.ts.
  */
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get("url");
@@ -24,6 +28,22 @@ export async function GET(req: NextRequest) {
   }
 
   const session = await auth();
+
+  // A suspended account is refused before any quota, credit or cache is
+  // touched. Checked here as well as in the layout because this route is
+  // reachable directly — a blocked user who keeps their cookie and calls the
+  // API with curl must hit the same wall as one who loads the page.
+  if (session?.user?.blocked) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "blocked",
+        message: blockedMessage(session.user.blockedReason),
+      },
+      { status: 403 }
+    );
+  }
+
   const ip = getClientIp(req.headers);
 
   // An immediate repeat of the same video is free: looking up URL1 twice in a
@@ -35,10 +55,17 @@ export async function GET(req: NextRequest) {
 
   // The REAL account plan, not resolvePlan() — the dev ?plan= override must
   // never be able to lift the rate limit.
-  const limit = await checkRateLimit(ip, session?.user?.plan);
+  const limit = await checkRateLimit({
+    ip,
+    plan: session?.user?.plan,
+    role: session?.user?.role,
+    // Pro is metered per ACCOUNT, so the allowance follows the person rather
+    // than the network they happen to be on.
+    userId: session?.user?.id,
+  });
 
   const rateHeaders: Record<string, string> = {
-    "X-RateLimit-Limit": limit.unlimited ? "unlimited" : String(DAILY_LIMIT),
+    "X-RateLimit-Limit": limit.unlimited ? "unlimited" : String(limit.limit ?? FREE_DAILY_LOOKUPS),
     "X-RateLimit-Remaining": limit.unlimited ? "unlimited" : String(limit.remaining ?? 0),
   };
 
@@ -57,9 +84,19 @@ export async function GET(req: NextRequest) {
         {
           ok: false,
           reason: "rate_limited",
-          message: `You have used all ${DAILY_LIMIT} free lookups for today. Buy a pack of lookups, subscribe to Pro for unlimited, or come back tomorrow.`,
+          // A subscriber who runs out has nothing to upgrade TO, so they are
+          // told about packs and the reset date instead of being sold Pro.
+          message:
+            limit.period === "month"
+              ? `You have used all ${formatLookups(limit.limit ?? 0)} lookups included with Pro this month. Buy a pack of lookups to keep going — your monthly allowance resets on the 1st.`
+              : `You have used all ${FREE_DAILY_LOOKUPS} free lookups for today. Buy a pack of lookups, subscribe to Pro for ${PRO_ALLOWANCE_LABEL}, or come back tomorrow.`,
           retryAfterSeconds: limit.retryAfterSeconds,
-          rateLimit: { limit: DAILY_LIMIT, remaining: 0, unlimited: false },
+          rateLimit: {
+            limit: limit.limit,
+            remaining: 0,
+            unlimited: false,
+            period: limit.period,
+          },
           credits: 0,
         },
         {
@@ -85,24 +122,24 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // `plan` labels the account, and now also decides one thing: whether the
-  // earnings estimate is included.
-  const plan = resolvePlan(req.nextUrl.searchParams, session?.user?.plan);
+  // `plan` now only LABELS the account in the response. It no longer decides
+  // what the response contains.
+  const plan = resolvePlan(
+    req.nextUrl.searchParams,
+    session?.user?.plan,
+    session?.user?.role
+  );
 
-  // A prepaid lookup buys the Pro treatment FOR THAT LOOKUP. Someone who paid
-  // for this one request should get everything the request can produce, not a
-  // locked panel — they are paying more per lookup than a subscriber does.
-  //
-  // Deliberately per-request and not sticky: it grants nothing beyond this
-  // response, and never touches `plan`. History stays a subscriber feature
-  // because it is a property of the account, not of a single lookup.
+  // True when THIS lookup came out of the prepaid balance. It used to also
+  // unlock the earnings estimate for that one request; now that the estimate
+  // is free to everyone it only tells the UI to say a credit was spent, rather
+  // than silently drawing down a purchase.
   const spentCredit = creditsRemaining !== null;
 
-  // resolvePlan's ?plan=pro dev override is fine to honour here, unlike in
-  // rate limiting: the worst it can do in development is reveal a figure we
-  // compute ourselves, and in production the override does not exist.
-  const earnings =
-    isPro(plan) || spentCredit ? estimateEarnings(result.data) : null;
+  // Included for everyone, signed in or not. The daily allowance is what
+  // limits a free visitor — ten complete lookups, not an unlimited number of
+  // partial ones.
+  const earnings = estimateEarnings(result.data);
 
   // Report what is left AFTER this request. A repeat consumed nothing, so the
   // counter must not move — that visible tick is the whole point of the rule.
@@ -115,16 +152,17 @@ export async function GET(req: NextRequest) {
       ok: true,
       plan,
       data: { ...result.data, tagCount: result.data.tags.length },
-      // null below Pro. The UI shows a locked panel on null rather than
-      // guessing, so the gate lives in exactly one place.
       earnings,
       statsHistory: result.statsHistory,
       cacheHit: result.cacheHit,
       quotaUnits: result.quotaUnits,
       rateLimit: {
-        limit: DAILY_LIMIT,
+        limit: limit.limit,
         remaining: remainingAfter,
         unlimited: limit.unlimited,
+        // The UI needs this to say "today" or "this month" — the same number
+        // means different things to a free visitor and a subscriber.
+        period: limit.period,
       },
       // Only a signed-in user has a balance worth reporting. When a credit was
       // just spent, spendCredit already returned the new figure.

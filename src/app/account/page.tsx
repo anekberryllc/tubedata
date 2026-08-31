@@ -3,7 +3,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db, users, refundRequests } from "@/db";
-import { PLAN_LABELS, isPro, type Plan } from "@/lib/plans";
+import { PLAN_LABELS, isPro, hasProAccess, type Plan } from "@/lib/plans";
 import { LoginButton } from "@/components/AuthDialog";
 import { ManageSubscription } from "@/components/ManageSubscription";
 import { RefundRequestForm } from "@/components/RefundRequestForm";
@@ -15,6 +15,12 @@ import {
   ANNUAL_MONTHLY_EQUIVALENT_CENTS,
 } from "@/lib/pricing";
 import { BuyLookups } from "@/components/BuyLookups";
+import {
+  FREE_DAILY_LOOKUPS,
+  PRO_ALLOWANCE_LABEL,
+  PRO_MONTHLY_LOOKUPS,
+  formatLookups,
+} from "@/lib/limits";
 import { PurchaseHistory } from "@/components/PurchaseHistory";
 
 export const metadata: Metadata = {
@@ -65,7 +71,14 @@ export default async function AccountPage() {
 
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   const plan = (user?.plan ?? "free") as Plan;
+
+  // Two different questions on this page, and conflating them breaks it:
+  //   pro    — what this account is BILLED. Drives the subscription controls,
+  //            because the Stripe portal has nothing to show without one.
+  //   access — what this account can DO. Admins have everything without paying.
   const pro = isPro(plan);
+  const access = hasProAccess(user?.plan, user?.role);
+  const proViaAdmin = access && !pro;
 
   // Anyone who has ever been billed can ask for a refund, including someone who
   // has already cancelled — that is exactly when people ask.
@@ -96,10 +109,18 @@ export default async function AccountPage() {
 
           <div className="min-w-[12rem] flex-1">
             <p className="text-sm text-slate-300">
-              {pro
-                ? "Unlimited lookups and your full lookup history are unlocked."
-                : "You're on the free plan. Every field is free; lookups are capped at 10 per day and history is not saved for you to browse."}
+              {proViaAdmin
+                ? "Everything is unlocked, with no lookup cap."
+                : access
+                  ? `${PRO_ALLOWANCE_LABEL} and your full lookup history are unlocked.`
+                  : `You're on the free plan. Every field is free; lookups are capped at ${FREE_DAILY_LOOKUPS} per day and history is not saved for you to browse.`}
             </p>
+            {proViaAdmin && (
+              <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                Unlocked by your admin role, not by a subscription — nothing is being
+                billed to you.
+              </p>
+            )}
             {user?.email && (
               <p className="mt-0.5 truncate text-xs text-slate-600">{user.email}</p>
             )}
@@ -108,40 +129,67 @@ export default async function AccountPage() {
       </Section>
 
       <Section title="Subscription">
-        {pro || everPaid ? (
+        {pro ? (
           <ManageSubscription />
         ) : (
           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-            <p className="text-sm text-slate-400">
-              No subscription yet. Pro gives you unlimited lookups instead of 10 a day,
-              and your saved lookup history.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <UpgradeButton
-                interval="year"
-                label={`Upgrade to Pro — ${formatUsd(PRO_PRICE_CENTS.year)}/yr`}
-                className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-50"
-              />
-              <UpgradeButton
-                interval="month"
-                label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
-                className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-white/25 hover:text-white disabled:opacity-50"
-              />
-            </div>
-            <p className="mt-2.5 text-xs text-slate-500">
-              Yearly saves {ANNUAL_SAVING_PERCENT}% —{" "}
-              {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo, billed once a year. Same Pro
-              either way; you can switch later from the billing portal.
-            </p>
+            {proViaAdmin ? (
+              // No upgrade pitch to someone who already has everything — it
+              // would read as a demand for money for access they already hold.
+              <p className="text-sm text-slate-400">
+                No subscription, and you don&rsquo;t need one: admin accounts have full
+                access. If your role is ever removed, this account drops back to the
+                free plan.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-slate-400">
+                  No subscription yet. Pro gives you {PRO_ALLOWANCE_LABEL} instead of{" "}
+                  {FREE_DAILY_LOOKUPS} a day, and your saved lookup history.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <UpgradeButton
+                    interval="year"
+                    label={`Upgrade to Pro — ${formatUsd(PRO_PRICE_CENTS.year)}/yr`}
+                    className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-50"
+                  />
+                  <UpgradeButton
+                    interval="month"
+                    label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-white/25 hover:text-white disabled:opacity-50"
+                  />
+                </div>
+                <p className="mt-2.5 text-xs text-slate-500">
+                  Yearly saves {ANNUAL_SAVING_PERCENT}% —{" "}
+                  {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo, billed once a year.
+                  Same Pro either way; you can switch later from the billing portal.
+                </p>
+              </>
+            )}
+
+            {/* Having a Stripe CUSTOMER is not having a subscription: buying a
+                lookup pack creates one, and so does a subscription that was
+                later cancelled. Keying the portal off it is right — those
+                receipts exist and must stay reachable. Keying the UPGRADE off
+                it was the bug: one $3 pack, or one cancellation, hid the way
+                back to Pro forever. */}
+            {everPaid && (
+              <div className="mt-5 border-t border-white/[0.07] pt-4">
+                <ManageSubscription
+                  label="Billing & invoices"
+                  note="Opens Stripe, where you can download past receipts and update your card."
+                />
+              </div>
+            )}
           </div>
         )}
       </Section>
 
       <Section title="Prepaid lookups">
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-          {pro ? (
+          {proViaAdmin ? (
             <p className="text-sm text-slate-400">
-              Your plan already includes unlimited lookups, so there is nothing to buy.
+              Your admin account has no lookup cap, so there is nothing to buy.
               {(user?.lookupCredits ?? 0) > 0 && (
                 <>
                   {" "}
@@ -158,8 +206,15 @@ export default async function AccountPage() {
                 <span className="font-semibold text-sky-300">{user?.lookupCredits ?? 0}</span>{" "}
                 prepaid {(user?.lookupCredits ?? 0) === 1 ? "lookup" : "lookups"}
               </p>
+              {/* Since Pro was capped, a subscriber can exhaust their month and
+                  buy more rather than wait for the 1st — so this section is no
+                  longer free-tier-only. */}
               <p className="mt-1 text-xs text-slate-600">
-                Spent only after your 10 free daily lookups run out. They never expire.
+                Spent only after your{" "}
+                {pro
+                  ? `${formatLookups(PRO_MONTHLY_LOOKUPS)} monthly`
+                  : `${FREE_DAILY_LOOKUPS} free daily`}{" "}
+                lookups run out. They never expire.
               </p>
               <div className="mt-4">
                 <BuyLookups />

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { PRO_ALLOWANCE_LABEL } from "@/lib/limits";
 
 function GoogleMark() {
   return (
@@ -157,7 +158,7 @@ export function AuthDialogProvider({
                 <div className="mt-6 space-y-2 border-t border-white/[0.07] pt-5">
                   {[
                     "Every field stays free — tags, topics, history, raw JSON",
-                    "Pro adds unlimited lookups and your saved lookup history",
+                    `Pro adds ${PRO_ALLOWANCE_LABEL} and your saved lookup history`,
                     "No password to remember or reset",
                   ].map((line) => (
                     <div key={line} className="flex gap-2.5 text-xs leading-relaxed text-slate-500">

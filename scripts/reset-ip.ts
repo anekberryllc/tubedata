@@ -38,7 +38,7 @@ async function main() {
 
   console.log("\nallowance now:");
   for (const ip of ["127.0.0.1", "::1"]) {
-    const v = await checkRateLimit(ip);
+    const v = await checkRateLimit({ ip });
     console.log(`  ${ip.padEnd(12)} used=${v.used} remaining=${v.remaining}/${DAILY_LIMIT}`);
   }
 }

@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import { db, users, creditPurchases } from "@/db";
 import { stripe, planForPrice, ACTIVE_STATUSES } from "@/lib/stripe";
 import { recordDonation } from "@/lib/record-donation";
+import { notifySupport } from "@/lib/email";
 
 /**
  * Add prepaid lookups to a user's balance, exactly once.
@@ -73,7 +74,26 @@ export async function POST(req: NextRequest) {
   }
 
   async function setPlanByCustomer(customerId: string, plan: string) {
-    await db.update(users).set({ plan }).where(eq(users.stripeCustomerId, customerId));
+    const updated = await db
+      .update(users)
+      .set({ plan })
+      .where(eq(users.stripeCustomerId, customerId))
+      .returning({ id: users.id });
+
+    // No row matched: Stripe knows about a customer we cannot map to an
+    // account, so somebody's payment is not granting them anything. This used
+    // to pass silently — the update simply affected zero rows — and the only
+    // way to notice was to compare Stripe against the database by hand.
+    if (updated.length === 0) {
+      await notifySupport(
+        `Stripe event for an unknown customer (${customerId})`,
+        `A ${event.type} event arrived for Stripe customer ${customerId}, but no
+user row has that stripeCustomerId, so plan="${plan}" was not applied.
+
+Someone may have paid and received nothing. Check that customer in Stripe
+against the accounts in /admin.`
+      );
+    }
   }
 
   switch (event.type) {

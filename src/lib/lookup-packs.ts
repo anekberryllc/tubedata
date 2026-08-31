@@ -2,10 +2,14 @@
  * Prepaid lookup packs — for people who want more than the 10 free daily
  * lookups but do not want a subscription.
  *
- * PRICING IS DELIBERATELY WORSE THAN PRO PER LOOKUP. Pro is $9/mo for
- * unlimited, so every pack has to stay above that on volume or it would
- * cannibalise the subscription. Packs are a convenience for occasional users,
- * not a cheaper route to the same thing.
+ * PRICING IS DELIBERATELY WORSE THAN PRO PER LOOKUP. Pro is $9/mo for 1,000
+ * lookups — under a cent each — so every pack stays far above that on volume
+ * and cannot cannibalise the subscription. Packs are a convenience for
+ * occasional users, not a cheaper route to the same thing.
+ *
+ * Since 2026-08-31 they are also OVERAGE: Pro is capped, so a subscriber who
+ * exhausts their month can buy more instead of waiting for the 1st. That is
+ * why the account page offers packs to subscribers now.
  *
  * This constraint is why the tier collapse kept Pro at $9 rather than moving it
  * to $29 — at $29 the $11/50 pack undercuts the subscription for anyone doing

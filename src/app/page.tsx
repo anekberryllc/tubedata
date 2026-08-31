@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { VideoMetadata } from "@/lib/youtube";
 import type { Plan } from "@/lib/plans";
 import type { EarningsEstimate } from "@/lib/earnings";
-import { LockedPanel } from "@/components/LockedPanel";
 import { publishCredits } from "@/components/credits-channel";
 import {
   formatUsd,
@@ -12,6 +11,11 @@ import {
   ANNUAL_SAVING_PERCENT,
   ANNUAL_MONTHLY_EQUIVALENT_CENTS,
 } from "@/lib/pricing";
+import {
+  PRO_ALLOWANCE_LABEL,
+  formatLookups,
+  type LimitPeriod,
+} from "@/lib/limits";
 import { SectionHeading } from "@/components/InfoHint";
 import { CopyButton } from "@/components/CopyButton";
 import { UpgradeButton } from "@/components/UpgradeButton";
@@ -26,7 +30,13 @@ type StatPoint = {
 
 type Result = Partial<VideoMetadata> & { tagCount: number };
 
-type RateLimit = { limit: number; remaining: number | null; unlimited: boolean };
+type RateLimit = {
+  limit: number | null;
+  remaining: number | null;
+  unlimited: boolean;
+  /** "day" for the free IP allowance, "month" for a Pro account's. */
+  period: LimitPeriod | null;
+};
 
 const n = (x?: number | null) => (x === null || x === undefined ? "—" : x.toLocaleString());
 
@@ -76,8 +86,8 @@ export default function Home() {
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Null both when the caller is below Pro and when there is nothing to
-  // estimate from, which the locked panel and the empty state handle alike.
+  // Included on every lookup now, for everyone — null only before the first
+  // one, or when the video gives the model nothing to work from.
   const [earnings, setEarnings] = useState<EarningsEstimate | null>(null);
   const [rateLimit, setRateLimit] = useState<RateLimit | null>(null);
   // Stored as an absolute instant, not a countdown, so it stays truthful in a
@@ -250,9 +260,12 @@ export default function Home() {
                         (rateLimit.remaining ?? 0) === 0 ? "text-red-300" : "text-slate-400"
                       }
                     >
-                      {rateLimit.remaining ?? 0}
+                      {formatLookups(rateLimit.remaining ?? 0)}
                     </span>{" "}
-                    of {rateLimit.limit} free lookups left today
+                    of {formatLookups(rateLimit.limit ?? 0)}{" "}
+                    {rateLimit.period === "month"
+                      ? "lookups left this month"
+                      : "free lookups left today"}
                     {credits !== null && credits > 0 && (
                       <span className="text-sky-300/70"> · {credits} prepaid</span>
                     )}
@@ -265,15 +278,16 @@ export default function Home() {
 
         {upgraded && (
           <div className="animate-rise mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] px-5 py-4 text-sm text-emerald-200">
-            <strong className="font-semibold">Upgrade complete.</strong> Unlimited lookups
-            and your full lookup history are now unlocked — restoring your last lookup below.
+            <strong className="font-semibold">Upgrade complete.</strong>{" "}
+            {PRO_ALLOWANCE_LABEL} and your full lookup history are now unlocked —
+            restoring your last lookup below.
           </div>
         )}
 
         {purchased !== null && (
           <div className="animate-rise mt-6 rounded-2xl border border-sky-400/20 bg-sky-400/[0.06] px-5 py-4 text-sm text-sky-200">
             <strong className="font-semibold">{purchased} lookups added.</strong> They never
-            expire, and they are only spent once your free daily allowance runs out.
+            expire, and they are only spent once your included allowance runs out.
           </div>
         )}
 
@@ -286,52 +300,88 @@ export default function Home() {
 
         {error && errorReason === "rate_limited" && (
           <div className="animate-rise mt-6 rounded-2xl border border-amber-400/25 bg-gradient-to-b from-amber-400/[0.08] to-transparent px-5 py-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-              <div className="min-w-[16rem] flex-1">
+            {rateLimit?.period === "month" ? (
+              /* A SUBSCRIBER who has run out. There is no upgrade to sell them
+                 — they already bought the thing — so this says when the
+                 allowance comes back and offers the only thing that helps
+                 today. Pitching Pro at someone who pays for Pro reads as the
+                 site not knowing who they are. */
+              <>
                 <p className="text-sm font-medium text-amber-100">
-                  You have used all {rateLimit?.limit ?? 10} free lookups for today.
+                  You have used all {formatLookups(rateLimit.limit ?? 0)} lookups
+                  included with Pro this month.
                 </p>
                 <p className="mt-1 text-sm text-amber-200/70">
                   {resetAt ? (
                     <>
-                      Your next free lookup unlocks{" "}
+                      Your allowance resets{" "}
                       <span className="font-medium text-amber-100">{resetLabel(resetAt)}</span>.
-                      Pro gives you unlimited lookups and your full lookup history.
                     </>
                   ) : (
-                    <>
-                      Pro gives you unlimited lookups and your full lookup history — or come
-                      back tomorrow.
-                    </>
+                    <>Your allowance resets at the start of next month.</>
                   )}
                 </p>
-              </div>
-              {/* Yearly leads because it is the better deal; monthly stays one
-                  click away rather than being buried. */}
-              <div className="flex shrink-0 flex-col items-stretch gap-1.5">
-                <UpgradeButton
-                  interval="year"
-                  label={`Get Pro — ${formatUsd(PRO_PRICE_CENTS.year)}/yr`}
-                  className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/10 transition hover:brightness-110 disabled:opacity-50"
-                />
-                <p className="text-center text-[11px] text-amber-200/60">
-                  Save {ANNUAL_SAVING_PERCENT}% —{" "}
-                  {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo billed yearly
-                </p>
-                <UpgradeButton
-                  interval="month"
-                  label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
-                  className="rounded-xl border border-amber-400/25 px-4 py-1.5 text-xs font-medium text-amber-200/80 transition hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-50"
-                />
-              </div>
-            </div>
 
-            <div className="mt-4 border-t border-amber-400/15 pt-4">
-              <p className="mb-2.5 text-xs text-amber-200/60">
-                Or buy lookups once — no subscription, and they never expire.
-              </p>
-              <BuyLookups />
-            </div>
+                <div className="mt-4 border-t border-amber-400/15 pt-4">
+                  <p className="mb-2.5 text-xs text-amber-200/60">
+                    Need more before then? Prepaid lookups never expire.
+                  </p>
+                  <BuyLookups />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                  <div className="min-w-[16rem] flex-1">
+                    <p className="text-sm font-medium text-amber-100">
+                      You have used all {rateLimit?.limit ?? 10} free lookups for today.
+                    </p>
+                    <p className="mt-1 text-sm text-amber-200/70">
+                      {resetAt ? (
+                        <>
+                          Your next free lookup unlocks{" "}
+                          <span className="font-medium text-amber-100">
+                            {resetLabel(resetAt)}
+                          </span>
+                          . Pro gives you {PRO_ALLOWANCE_LABEL} and your full lookup
+                          history.
+                        </>
+                      ) : (
+                        <>
+                          Pro gives you {PRO_ALLOWANCE_LABEL} and your full lookup
+                          history — or come back tomorrow.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  {/* Yearly leads because it is the better deal; monthly stays one
+                      click away rather than being buried. */}
+                  <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                    <UpgradeButton
+                      interval="year"
+                      label={`Get Pro — ${formatUsd(PRO_PRICE_CENTS.year)}/yr`}
+                      className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/10 transition hover:brightness-110 disabled:opacity-50"
+                    />
+                    <p className="text-center text-[11px] text-amber-200/60">
+                      Save {ANNUAL_SAVING_PERCENT}% —{" "}
+                      {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo billed yearly
+                    </p>
+                    <UpgradeButton
+                      interval="month"
+                      label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
+                      className="rounded-xl border border-amber-400/25 px-4 py-1.5 text-xs font-medium text-amber-200/80 transition hover:border-amber-400/50 hover:text-amber-100 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-amber-400/15 pt-4">
+                  <p className="mb-2.5 text-xs text-amber-200/60">
+                    Or buy lookups once — no subscription, and they never expire.
+                  </p>
+                  <BuyLookups />
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -429,11 +479,11 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* ---------- ESTIMATED EARNINGS (Pro) ---------- */}
+              {/* ---------- ESTIMATED EARNINGS ---------- */}
               <div>
                 <SectionHeading field="earnings">Estimated earnings</SectionHeading>
 
-                {earnings ? (
+                {earnings && (
                   <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
@@ -482,23 +532,6 @@ export default function Home() {
                       merch are invisible from public data.
                     </p>
                   </div>
-                ) : (
-                  // Label states the method rather than repeating the heading
-                  // above it — what is behind the lock is the RPM model.
-                  <LockedPanel label="Views × assumed RPM">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {["Lifetime range", "Assumed RPM"].map((heading) => (
-                        <div key={heading}>
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                            {heading}
-                          </div>
-                          <div className="mt-1.5 text-2xl font-semibold tabular-nums text-white">
-                            $0,000 – $0,000
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </LockedPanel>
                 )}
               </div>
 

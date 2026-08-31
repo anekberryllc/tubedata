@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { subscribeCredits } from "./credits-channel";
+import { UpgradeButton } from "./UpgradeButton";
+import {
+  formatUsd,
+  PRO_PRICE_CENTS,
+  ANNUAL_SAVING_PERCENT,
+} from "@/lib/pricing";
+import { PRO_ALLOWANCE_LABEL } from "@/lib/limits";
 
 /**
  * Signed-in user menu.
@@ -18,7 +25,9 @@ export function UserMenu({
   image,
   planLabel,
   premium,
+  viaAdmin,
   initialCredits,
+  admin,
   signOutAction,
 }: {
   email: string | null;
@@ -26,8 +35,12 @@ export function UserMenu({
   image: string | null;
   planLabel: string;
   premium: boolean;
+  /** Pro access that comes from the admin role, not from a subscription. */
+  viaAdmin: boolean;
   /** Balance from the session at page load; kept current by credits-channel. */
   initialCredits: number;
+  /** Draws the admin link. Not a permission — /admin re-checks server-side. */
+  admin: boolean;
   signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -122,6 +135,13 @@ export function UserMenu({
               >
                 {planLabel}
               </span>
+              {/* Without this an admin reads the Pro badge as a $9 charge they
+                  don't remember making. */}
+              {viaAdmin && (
+                <span className="text-[10px] uppercase tracking-[0.1em] text-slate-600">
+                  via admin
+                </span>
+              )}
               {/* Only shown once someone has actually bought lookups — a "0
                   prepaid remaining" on every free account would be noise. */}
               {credits > 0 && (
@@ -132,7 +152,56 @@ export function UserMenu({
             </div>
           </div>
 
+          {/* Only for accounts that don't already have Pro — `premium` is the
+              access predicate, so admins and subscribers never see a pitch for
+              something they already have.
+
+              BOTH intervals are offered here rather than one button plus a link
+              to the account page: Stripe Checkout is bought at a single price,
+              so whichever interval this button carries is the one they are
+              committed to by the time they see a payment form. The choice has
+              to happen before the click, not after it. */}
+          {!premium && (
+            <div className="border-b border-white/[0.07] bg-gradient-to-r from-amber-400/[0.07] to-orange-400/[0.04] px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-200/70">
+                Upgrade to Pro
+              </p>
+
+              <div className="mt-2 flex flex-col gap-1.5">
+                {/* Annual first, and styled as the primary action: it is the
+                    better deal for them and the one worth defaulting to. */}
+                <UpgradeButton
+                  interval="year"
+                  label={`${formatUsd(PRO_PRICE_CENTS.year)}/yr — save ${ANNUAL_SAVING_PERCENT}%`}
+                  className="w-full rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-3 py-2 text-[13px] font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-50"
+                />
+                <UpgradeButton
+                  interval="month"
+                  label={`or ${formatUsd(PRO_PRICE_CENTS.month)}/mo`}
+                  className="w-full rounded-xl border border-white/10 px-3 py-2 text-[13px] font-medium text-slate-300 transition hover:border-white/25 hover:text-white disabled:opacity-50"
+                />
+              </div>
+
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                {PRO_ALLOWANCE_LABEL} and your saved history. Same Pro either way —
+                you can switch later from the billing portal.
+              </p>
+            </div>
+          )}
+
           <div className="p-1.5">
+            {admin && (
+              <Link
+                href="/admin"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-amber-200 transition hover:bg-amber-400/[0.08] hover:text-amber-100"
+              >
+                <span aria-hidden="true">🛡️</span>
+                Admin panel
+              </Link>
+            )}
+
             <Link
               href="/history"
               role="menuitem"

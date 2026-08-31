@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db, users, refundRequests } from "@/db";
+import { notifySupport } from "@/lib/email";
 
 /**
  * Refund requests.
@@ -69,6 +70,26 @@ export async function POST(req: NextRequest) {
       reason,
     })
     .returning({ id: refundRequests.id, createdAt: refundRequests.createdAt });
+
+  // The queue is only useful if someone knows it filled. Sent AFTER the row
+  // exists, and its outcome ignored: the request is recorded either way, and
+  // failing the response because Gmail was unreachable would tell the user
+  // their refund request did not go through when it did.
+  await notifySupport(
+    `Refund requested by ${user.email ?? user.id}`,
+    `${user.email ?? "(no email)"} has asked for a refund.
+
+Plan at request: ${user.plan}
+Stripe customer: ${user.stripeCustomerId ?? "none"}
+
+Reason:
+${reason}
+
+Decide it here: /admin/refunds
+Issuing the money back still happens in Stripe.`,
+    // Reply in Gmail answers the requester directly.
+    user.email ?? undefined
+  );
 
   return NextResponse.json({ ok: true, id: created.id, createdAt: created.createdAt });
 }

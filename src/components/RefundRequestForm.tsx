@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SUPPORT_EMAIL } from "./SiteFooter";
+import { SUPPORT_EMAIL } from "@/lib/support";
 
 type ExistingRequest = {
   id: number;

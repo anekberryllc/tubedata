@@ -5,7 +5,8 @@ import { AuthHeader } from "@/components/AuthHeader";
 import { AuthDialogProvider } from "@/components/AuthDialog";
 import { PendingPurchase } from "@/components/PendingPurchase";
 import { SiteFooter } from "@/components/SiteFooter";
-import { signIn } from "@/auth";
+import { BlockedNotice } from "@/components/BlockedNotice";
+import { auth, signIn } from "@/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,7 +54,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // One place to lock a suspended account out of every page, present and
+  // future. The header still renders, so they can read what happened and sign
+  // out. Real enforcement lives in the API routes — this is the explanation.
+  const session = await auth();
+  const blocked = !!session?.user?.blocked;
+
   return (
     <html
       lang="en"
@@ -71,7 +78,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {/* Resumes a purchase that was interrupted by the sign-in redirect. */}
           <PendingPurchase />
           <AuthHeader />
-          {children}
+          {blocked ? (
+            <BlockedNotice reason={session?.user?.blockedReason ?? null} />
+          ) : (
+            children
+          )}
           <SiteFooter />
         </AuthDialogProvider>
       </body>

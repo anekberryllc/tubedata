@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@/auth";
-import { isPro, type Plan } from "@/lib/plans";
+import { hasProAccess } from "@/lib/plans";
 import { formatDuration } from "@/lib/youtube";
 import { getHistoryCount, getLookupHistory } from "@/lib/lookup-history";
 import { LockedPanel } from "@/components/LockedPanel";
@@ -39,7 +39,12 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default async function HistoryPage() {
+export default async function HistoryPage(props: PageProps<"/history">) {
+  const { q } = await props.searchParams;
+  // The term lives in the URL rather than in client state, so a search can be
+  // reloaded, bookmarked and shared with yourself on another device.
+  const search = typeof q === "string" ? q.trim() : "";
+
   const session = await auth();
   const userId = session?.user?.id;
 
@@ -59,11 +64,9 @@ export default async function HistoryPage() {
     );
   }
 
-  const plan = (session.user.plan ?? "free") as Plan;
-
   // Free users get the count, not the contents — the rows are being recorded
   // either way, so upgrading reveals a real backlog rather than an empty page.
-  if (!isPro(plan)) {
+  if (!hasProAccess(session.user.plan, session.user.role)) {
     const count = await getHistoryCount(userId);
 
     return (
@@ -107,9 +110,12 @@ export default async function HistoryPage() {
     );
   }
 
-  const entries = await getLookupHistory(userId);
+  const entries = await getLookupHistory(userId, search);
 
-  if (entries.length === 0) {
+  // Only the truly-empty history gets the "nothing here yet" pitch. A search
+  // that found nothing is a different situation and must not tell someone with
+  // 200 saved videos that they have never looked one up.
+  if (entries.length === 0 && !search) {
     return (
       <Shell>
         <div className="rounded-3xl border border-white/[0.07] bg-white/[0.02] p-8 text-center">
@@ -129,64 +135,106 @@ export default async function HistoryPage() {
 
   return (
     <Shell>
-      <p className="mb-4 text-xs text-slate-600">
-        {entries.length} {entries.length === 1 ? "video" : "videos"}
-      </p>
+      <form className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          name="q"
+          defaultValue={search}
+          placeholder="Search your history — title, channel, or URL"
+          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400/40 focus:outline-none"
+        />
+        <button
+          type="submit"
+          className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+        >
+          Search
+        </button>
+        {search && (
+          <Link
+            href="/history"
+            className="px-1 text-sm text-slate-500 transition hover:text-slate-300"
+          >
+            Clear
+          </Link>
+        )}
+      </form>
 
-      <ul className="space-y-2.5">
-        {entries.map((e) => (
-          <li key={e.videoId}>
-            <Link
-              href={`/?v=${encodeURIComponent(e.videoId)}`}
-              className="group flex items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3 transition hover:border-sky-400/30 hover:bg-sky-400/[0.04]"
-            >
-              <div className="relative h-[3.4rem] w-24 shrink-0 overflow-hidden rounded-lg bg-black/40">
-                {e.thumbnail ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={e.thumbnail}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-lg text-slate-700">
-                    ▢
+      {entries.length === 0 ? (
+        <div className="mt-6 rounded-3xl border border-white/[0.07] bg-white/[0.02] p-8 text-center">
+          <p className="text-sm text-slate-400">
+            Nothing in your history matches{" "}
+            <span className="font-medium text-slate-200">{search}</span>.
+          </p>
+          <Link
+            href="/history"
+            className="mt-5 inline-block rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-white/25 hover:text-white"
+          >
+            Show everything
+          </Link>
+        </div>
+      ) : (
+        <>
+          <p className="mb-4 mt-5 text-xs text-slate-600">
+            {entries.length} {entries.length === 1 ? "video" : "videos"}
+            {search && " matching"}
+          </p>
+
+          <ul className="space-y-2.5">
+            {entries.map((e) => (
+              <li key={e.videoId}>
+                <Link
+                  href={`/?v=${encodeURIComponent(e.videoId)}`}
+                  className="group flex items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3 transition hover:border-sky-400/30 hover:bg-sky-400/[0.04]"
+                >
+                  <div className="relative h-[3.4rem] w-24 shrink-0 overflow-hidden rounded-lg bg-black/40">
+                    {e.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={e.thumbnail}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-lg text-slate-700">
+                        ▢
+                      </div>
+                    )}
+                    {e.durationSeconds !== null && (
+                      <span className="absolute bottom-1 right-1 rounded bg-black/80 px-1 py-px text-[10px] font-medium tabular-nums text-slate-200">
+                        {formatDuration(e.durationSeconds)}
+                      </span>
+                    )}
                   </div>
-                )}
-                {e.durationSeconds !== null && (
-                  <span className="absolute bottom-1 right-1 rounded bg-black/80 px-1 py-px text-[10px] font-medium tabular-nums text-slate-200">
-                    {formatDuration(e.durationSeconds)}
-                  </span>
-                )}
-              </div>
 
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-200 group-hover:text-white">
-                  {e.title ?? e.sourceUrl}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-slate-500">
-                  {e.channelTitle ?? "Unknown channel"}
-                  {e.status !== "available" && (
-                    <span className="ml-2 rounded bg-red-400/10 px-1.5 py-px text-[10px] font-medium text-red-300">
-                      {e.status.replace("_", " ")}
-                    </span>
-                  )}
-                </p>
-              </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-200 group-hover:text-white">
+                      {e.title ?? e.sourceUrl}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {e.channelTitle ?? "Unknown channel"}
+                      {e.status !== "available" && (
+                        <span className="ml-2 rounded bg-red-400/10 px-1.5 py-px text-[10px] font-medium text-red-300">
+                          {e.status.replace("_", " ")}
+                        </span>
+                      )}
+                    </p>
+                  </div>
 
-              <div className="shrink-0 text-right">
-                <p className="text-[11px] tabular-nums text-slate-500">
-                  {dateFmt.format(e.lastViewedAt)}
-                </p>
-                {e.timesViewed > 1 && (
-                  <p className="mt-0.5 text-[10px] text-slate-600">{e.timesViewed}× looked up</p>
-                )}
-              </div>
-            </Link>
-          </li>
-        ))}
-      </ul>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] tabular-nums text-slate-500">
+                      {dateFmt.format(e.lastViewedAt)}
+                    </p>
+                    {e.timesViewed > 1 && (
+                      <p className="mt-0.5 text-[10px] text-slate-600">{e.timesViewed}× looked up</p>
+                    )}
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </Shell>
   );
 }

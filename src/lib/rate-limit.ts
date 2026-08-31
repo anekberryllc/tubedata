@@ -1,22 +1,49 @@
-import { and, desc, eq, gt, sql as raw } from "drizzle-orm";
+import { and, desc, eq, gt, gte, sql as raw } from "drizzle-orm";
 import { db, lookups } from "@/db";
-import { isPro, type Plan } from "./plans";
+import { isAdmin } from "./roles";
+import {
+  FREE_DAILY_LOOKUPS,
+  PRO_MONTHLY_LOOKUPS,
+  type LimitPeriod,
+} from "./limits";
 
 /**
  * Volume limiting, backed by the `lookups` table we already write to.
  *
- * ONE ceiling: DAILY_LIMIT lookups per IP per rolling 24 hours.
+ * THREE CEILINGS, and they are counted over different things:
+ *
+ *   free   FREE_DAILY_LOOKUPS per IP, rolling 24 hours. Per IP because a free
+ *          visitor need not have an account at all.
+ *   Pro    PRO_MONTHLY_LOOKUPS per ACCOUNT, per calendar month. Per account
+ *          because it is what the subscription bought — it must not evaporate
+ *          because they opened a laptop on a different network, and it must
+ *          not multiply because they opened a phone.
+ *   admin  none. Staff operate the site rather than buy it.
  *
  * Every lookup counts, cache hits included. That is deliberate even though a
- * cache hit costs no YouTube quota: "10 free lookups a day" is something a
- * visitor can understand and predict, whereas a limit that only counts cache
- * misses would make popular videos free and obscure ones not, with no visible
- * reason why. The database cost of a cached lookup is not zero either.
+ * cache hit costs no YouTube quota: an allowance a visitor can predict beats
+ * one that only counts cache misses, which would make popular videos free and
+ * obscure ones not, with no visible reason why.
  *
- * Paying subscribers are exempt entirely — see checkRateLimit.
+ * PRO WAS UNLIMITED UNTIL 2026-08-31. The consequence worth remembering is
+ * that a paying subscriber can now hit a wall, so every caller has to handle
+ * a 429 for someone who has already paid — there is no upgrade to sell them,
+ * only prepaid packs and a reset date.
  */
-export const DAILY_LIMIT = 10;
+export { FREE_DAILY_LOOKUPS as DAILY_LIMIT } from "./limits";
+
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The instant the current Eastern calendar month began, and the instant the
+ * next one does — as absolute timestamps.
+ *
+ * Computed by Postgres rather than in JavaScript so the month boundary is one
+ * expression that already understands daylight saving, and so it matches the
+ * timezone every date in the UI is printed in.
+ */
+const MONTH_START = raw`date_trunc('month', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York'`;
+const NEXT_MONTH_START = raw`(date_trunc('month', now() AT TIME ZONE 'America/New_York') + interval '1 month') AT TIME ZONE 'America/New_York'`;
 
 /**
  * Extract the client IP.
@@ -60,29 +87,77 @@ export async function getLastLookupVideoId(ip: string): Promise<string | null> {
 
 export type RateLimitVerdict = {
   allowed: boolean;
-  /** Lookups used in the current window. Always 0 for exempt subscribers. */
+  /** Lookups spent in the current window. Always 0 for the uncapped. */
   used: number;
-  /** Remaining allowance, or null when the caller is unlimited. */
+  /** Remaining allowance, or null when the caller is uncapped. */
   remaining: number | null;
-  /** True when the caller is a paying subscriber and no limit applies. */
+  /** The ceiling in force, or null when there is none. */
+  limit: number | null;
+  /** Which window `limit` is measured over, or null when uncapped. */
+  period: LimitPeriod | null;
+  /** True only for admins now — Pro is capped like everyone else. */
   unlimited: boolean;
   retryAfterSeconds: number;
 };
 
 /**
- * @param ip          client IP, from getClientIp
- * @param sessionPlan the plan on the signed-in user's row, or undefined.
+ * @param ip      client IP, from getClientIp
+ * @param plan    the plan on the signed-in user's row, or undefined
+ * @param role    that user's role. Admins are uncapped.
+ * @param userId  the signed-in user's id. REQUIRED for a Pro allowance to be
+ *                counted per account; without it a Pro caller falls back to
+ *                the free IP limit, which fails closed rather than open.
  *
- *   Pass the REAL account plan here, never resolvePlan()'s output — that
+ *   Pass the REAL account plan and role, never resolvePlan()'s output — that
  *   honours ?plan=pro in development, which would turn the dev preview into a
- *   rate-limit bypass.
+ *   rate-limit bypass. The role is a real entitlement, so it belongs here.
  */
-export async function checkRateLimit(
-  ip: string,
-  sessionPlan?: string
-): Promise<RateLimitVerdict> {
-  if (sessionPlan && isPro(sessionPlan as Plan)) {
-    return { allowed: true, used: 0, remaining: null, unlimited: true, retryAfterSeconds: 0 };
+export async function checkRateLimit({
+  ip,
+  plan,
+  role,
+  userId,
+}: {
+  ip: string;
+  plan?: string;
+  role?: string;
+  userId?: string;
+}): Promise<RateLimitVerdict> {
+  if (isAdmin(role)) {
+    return {
+      allowed: true,
+      used: 0,
+      remaining: null,
+      limit: null,
+      period: null,
+      unlimited: true,
+      retryAfterSeconds: 0,
+    };
+  }
+
+  if (plan === "pro" && userId) {
+    const [row] = await db
+      .select({
+        used: raw<number>`COUNT(*)::int`,
+        resetsAt: raw<string>`${NEXT_MONTH_START}`,
+      })
+      .from(lookups)
+      .where(and(eq(lookups.userId, userId), gte(lookups.requestedAt, MONTH_START)));
+
+    const used = row?.used ?? 0;
+    // The whole allowance returns at once on the 1st, unlike the free tier
+    // where slots trickle back individually.
+    const resetsAt = row?.resetsAt ? new Date(row.resetsAt).getTime() : Date.now();
+
+    return {
+      allowed: used < PRO_MONTHLY_LOOKUPS,
+      used,
+      remaining: Math.max(0, PRO_MONTHLY_LOOKUPS - used),
+      limit: PRO_MONTHLY_LOOKUPS,
+      period: "month",
+      unlimited: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((resetsAt - Date.now()) / 1000)),
+    };
   }
 
   const since = new Date(Date.now() - WINDOW_MS);
@@ -102,9 +177,11 @@ export async function checkRateLimit(
   const retryAfterSeconds = Math.max(1, Math.ceil((oldest + WINDOW_MS - Date.now()) / 1000));
 
   return {
-    allowed: used < DAILY_LIMIT,
+    allowed: used < FREE_DAILY_LOOKUPS,
     used,
-    remaining: Math.max(0, DAILY_LIMIT - used),
+    remaining: Math.max(0, FREE_DAILY_LOOKUPS - used),
+    limit: FREE_DAILY_LOOKUPS,
+    period: "day",
     unlimited: false,
     retryAfterSeconds,
   };
