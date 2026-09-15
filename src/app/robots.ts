@@ -13,9 +13,10 @@ import type { MetadataRoute } from "next";
  * their time and ours.
  *
  * The origin comes from AUTH_URL, the same variable every other absolute URL in
- * this app derives from, so switching to tubedata.io stays a one-line change.
+ * this app derives from. WWW is canonical — the apex is a redirect, not a host
+ * this app answers on.
  */
-const SITE_URL = process.env.AUTH_URL ?? "https://tubedata.io";
+const SITE_URL = process.env.AUTH_URL ?? "https://www.tubedata.io";
 
 export default function robots(): MetadataRoute.Robots {
   return {

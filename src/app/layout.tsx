@@ -17,11 +17,20 @@ const geistMono = Geist_Mono({
 });
 
 /**
- * Canonical origin. Reads AUTH_URL so dev keeps generating localhost URLs and
- * production generates tubedata.io ones — the same variable Auth.js and the
- * Stripe redirects already key off, so there is one place to change.
+ * Canonical origin.
+ *
+ * WWW IS CANONICAL, and the fallback says so. The apex tubedata.io cannot be
+ * served directly: Wix DNS has no ALIAS or CNAME flattening, and a CNAME is
+ * forbidden at a zone apex, so the apex is a Wix forward to this host rather
+ * than an address the app answers on. Pointing the fallback at the apex meant
+ * every canonical tag and sitemap entry named a URL that 404s.
+ *
+ * AUTH_URL still overrides it, and remains the ONLY place an origin is
+ * configured — Auth.js callbacks, the Stripe redirects, robots, the sitemap and
+ * the OG image all derive from it. If the apex ever becomes servable (moving
+ * DNS to a provider with flattening), change AUTH_URL and this line together.
  */
-const SITE_URL = process.env.AUTH_URL ?? "https://tubedata.io";
+const SITE_URL = process.env.AUTH_URL ?? "https://www.tubedata.io";
 
 const DESCRIPTION =
   "Paste any YouTube URL and see the full public record — tags, topic categories, " +

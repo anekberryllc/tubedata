@@ -16,7 +16,7 @@ import type { MetadataRoute } from "next";
  * and largely do. They are set to something honest rather than to 1.0 across
  * the board, which tells them nothing.
  */
-const SITE_URL = process.env.AUTH_URL ?? "https://tubedata.io";
+const SITE_URL = process.env.AUTH_URL ?? "https://www.tubedata.io";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
