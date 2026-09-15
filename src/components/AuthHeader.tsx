@@ -4,6 +4,7 @@ import { PLAN_LABELS, hasProAccess, type Plan } from "@/lib/plans";
 import { isAdmin } from "@/lib/roles";
 import { LoginButton } from "./AuthDialog";
 import { UserMenu } from "./UserMenu";
+import { ToolsMenu } from "./ToolsMenu";
 import { BuyMeACoffee } from "./BuyMeACoffee";
 
 /**
@@ -37,6 +38,13 @@ export async function AuthHeader() {
             </span>
           </span>
         </Link>
+
+        {/* Sits next to the wordmark rather than in the right-hand cluster:
+            these are destinations, and the right side is account and billing
+            actions. */}
+        <nav className="flex shrink-0 items-center">
+          <ToolsMenu />
+        </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <BuyMeACoffee />
