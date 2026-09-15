@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAuthDialog } from "./AuthDialog";
 import { rememberPurchase } from "./PendingPurchase";
 import { LOOKUP_PACKS, formatUsd } from "@/lib/lookup-packs";
+import { TAX_NOTE_SHORT } from "@/lib/pricing";
 
 /**
  * Prepaid lookup packs. Requires an account — unlike a donation, this grants a
@@ -66,6 +67,14 @@ export function BuyLookups({ compact = false }: { compact?: boolean }) {
           </button>
         ))}
       </div>
+      {/* Packs carry a tax code too, so they are taxed exactly like the
+          subscription. One note inside this component covers every place packs
+          are offered — the pricing page, the account page and the daily-limit
+          banner — rather than three copies that can drift apart. */}
+      <p className={`mt-2 text-slate-600 ${compact ? "text-[10px]" : "text-[11px]"}`}>
+        {TAX_NOTE_SHORT.charAt(0).toUpperCase() + TAX_NOTE_SHORT.slice(1)} where
+        applicable, shown at checkout.
+      </p>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
     </div>
   );

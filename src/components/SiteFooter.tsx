@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SUPPORT_EMAIL } from "@/lib/support";
 
 /**
@@ -7,6 +8,11 @@ import { SUPPORT_EMAIL } from "@/lib/support";
  * marketing, or a sitemap. It exists because a site taking payments needs a
  * reachable contact address — card networks and Stripe expect one — and because
  * the refund flow promises a reply by email.
+ *
+ * Privacy earns its place here on that same ground, and only that ground: a
+ * policy nobody can reach does not count as disclosure, and both Stripe and any
+ * future ad network expect it linked from every page. It is not an invitation
+ * to start adding links.
  *
  * `mt-auto` pins it to the bottom of the flex column in layout.tsx, so it never
  * floats up under short pages.
@@ -18,6 +24,9 @@ export function SiteFooter() {
         <span>
           TubeData<span className="text-slate-700">.io</span>
         </span>
+        <Link href="/privacy" className="transition hover:text-sky-300">
+          Privacy
+        </Link>
         <a
           href={`mailto:${SUPPORT_EMAIL}`}
           className="ml-auto transition hover:text-sky-300"

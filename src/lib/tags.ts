@@ -161,3 +161,169 @@ export function buildVariants(seed: string, year = new Date().getFullYear()): Ta
 
   return out;
 }
+
+/* ------------------------------------------------------------------ *
+ * Hashtags
+ *
+ * A different property with a different failure mode, which is why they are
+ * generated and budgeted separately rather than being the tag list with a "#"
+ * glued on. Tags live in `snippet.tags` and are capped by CHARACTERS; hashtags
+ * live in the description text and are capped by COUNT.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The cliff. YouTube ignores EVERY hashtag on a video that carries more than
+ * fifteen of them — it does not keep the first fifteen and drop the rest, and
+ * over-tagging is treated as spam. Overshooting here costs you the lot, so the
+ * UI stops selection dead at this number instead of turning a counter red.
+ */
+export const MAX_HASHTAGS = 15;
+
+/**
+ * How many hashtags YouTube lifts out of the description and shows above the
+ * video title. Only the first three, in description order — so the ORDER of a
+ * hashtag set is a real decision, not cosmetic, and the UI shows which three
+ * are the ones anybody will see.
+ */
+export const PROMINENT_HASHTAGS = 3;
+
+/**
+ * Longest hashtag body we will suggest, "#" excluded.
+ *
+ * The only filter that matters. An earlier version capped WORDS instead, which
+ * looked sensible and was wrong: every useful hashtag for "drone photography
+ * for beginners" is four words or more, so it threw away the entire set and
+ * left four candidates for fifteen slots. Hashtags run together, so length is
+ * the thing a reader actually feels — count the characters, not the words.
+ */
+const MAX_HASHTAG_CHARS = 30;
+
+/**
+ * A phrase as a hashtag: no spaces, no punctuation, lower case.
+ *
+ * This is `tagKey` with a "#" in front, and deliberately so — a hashtag IS the
+ * normalized identity of a phrase, so the two cannot drift apart. It also
+ * means hashtags inherit the Unicode handling documented on STRIPPED: letters
+ * outside ASCII survive, which matters because YouTube accepts them.
+ */
+export const toHashtag = (text: string): string => `#${tagKey(text)}`;
+
+/**
+ * Words that carry nothing inside a hashtag but are not stop words for a TAG —
+ * "how to do drone photography" is a fine tag, and #dodronephotography is not a
+ * thing. Kept separate from STOP_WORDS so widening it here cannot change which
+ * broad tags buildVariants emits.
+ */
+const HASHTAG_STOP = new Set(["do", "does", "did", "doing", "get", "really", "actually"]);
+
+/**
+ * Words that are fine INSIDE a hashtag and useless as one on their own:
+ * #makesourdoughbread is a hashtag, #make is not. Checked only against
+ * single-word candidates, so it never interferes with how a phrase compacts.
+ */
+const GENERIC_ALONE = new Set([
+  "make", "making", "made", "try", "trying", "use", "using", "watch",
+  "best", "easy", "new", "top", "good", "great", "full", "real",
+]);
+
+/** A phrase's words with the connecting ones dropped. */
+function contentWords(text: string): string[] {
+  return text.split(" ").filter((w) => {
+    const lower = w.toLowerCase();
+    return w && !STOP_WORDS.has(lower) && !HASHTAG_STOP.has(lower);
+  });
+}
+
+/**
+ * Hashtag candidates, ranked, from the same pool that produced the tags.
+ *
+ * Not the tag list with a "#" glued on. Each phrase is mined for the shorter
+ * hashtags hiding inside it, because the one people actually search —
+ * #dronephotography — appears in no tag on its own: it is the first two
+ * content words of a four-word topic.
+ *
+ * Re-ranked too: a broad single word is one of the best hashtags you can have
+ * and one of the weakest tags, so `word` is promoted above `variant` here even
+ * though the tag ranking puts it last.
+ */
+export function buildHashtags(tags: Tag[]): Tag[] {
+  /**
+   * NOT the tag ranking. A broad single word is a weak tag and a strong
+   * hashtag — #sourdough is how a video gets filed with every other sourdough
+   * video, which is the entire job of a hashtag — so `word` outranks the
+   * long-tail `suggest` phrases here. In the tag list it is the other way
+   * round, and both are right for what they feed.
+   */
+  const RANK: Record<TagSource, number> = { seed: 0, word: 1, suggest: 2, variant: 3 };
+
+  const ranked: { text: string; source: TagSource; rank: number; order: number }[] = [];
+  const seen = new Set<string>();
+
+  tags.forEach((tag, order) => {
+    const words = contentWords(tag.text);
+
+    const forms = [
+      /**
+       * Adjacent pairs — the sweet spot, and the only thing that produces
+       * #dronephotography. ONLY from the seed. Mining pairs out of the
+       * suggestions as well was tried and is worse than it looks: "real estate
+       * drone photography" has "estate drone" adjacent inside it, and a set
+       * built that way fills up with fragments that read like typos. The seed
+       * is the one phrase whose internal word pairs are certain to be about
+       * this video.
+       */
+      ...(tag.source === "seed"
+        ? words.slice(0, -1).map((w, i) => `${w} ${words[i + 1]}`)
+        : []),
+      // The phrase with its connecting words dropped.
+      words.join(" "),
+      /**
+       * And the phrase exactly as written — SEED ONLY, and only when nothing
+       * in it is a HASHTAG_STOP word.
+       *
+       * Seed only because keeping both forms of every suggestion produces pairs
+       * like #makesourdoughbreadvegan and #howtomakesourdoughbreadvegan, which
+       * are the same hashtag spelled twice and burn two of fifteen slots to say
+       * one thing. The topic itself is worth both spellings —
+       * #howtomakesourdoughbread is a hashtag people genuinely follow — and
+       * nothing else is.
+       *
+       * The stop-word check then catches "how to do drone photography", which
+       * would otherwise give #howtododronephotography; its stripped form above
+       * already covers that phrase.
+       */
+      ...(tag.source === "seed" &&
+      !tag.text.split(" ").some((w) => HASHTAG_STOP.has(w.toLowerCase()))
+        ? [tag.text]
+        : []),
+    ];
+
+    // Shortest first within a phrase, so the tightest hashtag a topic yields
+    // is also the one most likely to land in the three shown above the title.
+    const bodies = forms
+      .filter((form) => {
+        const parts = form.trim().split(" ");
+        return parts.length > 1 || !GENERIC_ALONE.has(parts[0].toLowerCase());
+      })
+      .map(tagKey)
+      .filter((body) => body.length > 1 && body.length <= MAX_HASHTAG_CHARS)
+      .sort((a, b) => a.length - b.length);
+
+    for (const body of bodies) {
+      if (seen.has(body)) continue;
+      seen.add(body);
+      ranked.push({ text: `#${body}`, source: tag.source, rank: RANK[tag.source], order });
+    }
+  });
+
+  return (
+    ranked
+      // Stable within a rank, so the significance order the caller chose still
+      // decides everything except which source wins.
+      .sort((a, b) => a.rank - b.rank || a.order - b.order)
+      .map(({ text, source }) => ({ text, source }))
+      // More than can be used, on purpose: fifteen slots out of a couple of
+      // dozen candidates is a choice, which is the whole point of the tool.
+      .slice(0, 24)
+  );
+}

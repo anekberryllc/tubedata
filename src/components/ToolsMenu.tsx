@@ -21,8 +21,14 @@ const TOOLS = [
   {
     href: "/tools/tag-generator",
     icon: "🏷️",
-    name: "Tag generator",
-    blurb: "Tags from what people search for",
+    name: "Tag & hashtag generator",
+    blurb: "Tags from what people search for on YouTube",
+  },
+  {
+    href: "/tools/channel-analyzer",
+    icon: "📊",
+    name: "Channel audit",
+    blurb: "Graded checklist of what a channel is missing",
   },
 ] as const;
 

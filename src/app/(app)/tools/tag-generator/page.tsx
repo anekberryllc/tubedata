@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TagGenerator } from "@/components/TagGenerator";
-import { MAX_TAGS_CHARS } from "@/lib/tags";
+import { MAX_HASHTAGS, MAX_TAGS_CHARS } from "@/lib/tags";
 
 /**
  * The first page under /tools.
@@ -12,10 +12,11 @@ import { MAX_TAGS_CHARS } from "@/lib/tags";
  * product is one click away in the header.
  */
 export const metadata: Metadata = {
-  title: "YouTube Tag Generator",
+  title: "YouTube Tag & Hashtag Generator",
   description:
-    "Generate YouTube tags from a topic, drawn from what people actually search for. " +
-    "Pick the ones you want and copy them, inside YouTube's 500-character limit.",
+    "Generate YouTube tags and hashtags from a topic, drawn from what people actually " +
+    "search for on YouTube. Pick the ones you want and copy them, inside YouTube's " +
+    "500-character tag limit and 15-hashtag cap.",
   alternates: { canonical: "/tools/tag-generator" },
 };
 
@@ -30,13 +31,14 @@ export default function TagGeneratorPage() {
           </span>
 
           <h1 className="mt-6 text-balance bg-gradient-to-br from-white via-slate-200 to-slate-500 bg-clip-text text-4xl font-bold leading-[1.1] tracking-tight text-transparent sm:text-5xl">
-            YouTube tag generator
+            YouTube tag &amp; hashtag generator
           </h1>
 
           <p className="mx-auto mt-5 max-w-xl text-pretty text-[15px] leading-relaxed text-slate-400">
             Describe your video and get tags built from what people actually search for
             on YouTube — packed to fit the {MAX_TAGS_CHARS}-character limit Studio
-            enforces.
+            enforces, plus hashtags for your description, up to the {MAX_HASHTAGS}{" "}
+            YouTube will honour.
           </p>
         </div>
 

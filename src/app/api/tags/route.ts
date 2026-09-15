@@ -4,6 +4,7 @@ import { blockedMessage } from "@/lib/roles";
 import { getClientIp } from "@/lib/rate-limit";
 import { suggestMany } from "@/lib/youtube-suggest";
 import {
+  buildHashtags,
   buildVariants,
   dedupeTags,
   MAX_SEED_CHARS,
@@ -137,6 +138,8 @@ export async function GET(req: NextRequest) {
     ...buildVariants(seed),
   ];
 
+  const ranked = dedupeTags(candidates);
+
   return NextResponse.json({
     ok: true,
     seed,
@@ -146,7 +149,13 @@ export async function GET(req: NextRequest) {
      * than passing guesses off as research.
      */
     live,
-    tags: dedupeTags(candidates).slice(0, 48),
+    tags: ranked.slice(0, 48),
+    /**
+     * Drawn from the same ranked pool rather than from the 48 above — a phrase
+     * that misses the tag cut can still be the right hashtag, and
+     * buildHashtags applies its own ordering to what it is given anyway.
+     */
+    hashtags: buildHashtags(ranked),
   });
 }
 

@@ -11,6 +11,32 @@ if (!process.env.STRIPE_SECRET_KEY) {
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_missing");
 
 /**
+ * Stripe tax code for what we sell, REQUIRED on every line item.
+ *
+ * Managed Payments is enabled by default on this Stripe account and refuses to
+ * create a Checkout Session for any line item whose product has no tax code:
+ * "the product tax code is missing", HTTP 400. That is a hard failure of the
+ * entire payment, not a reporting nicety, so any new line item needs one from
+ * the start. Dashboard-created products carry their own; this constant is for
+ * the line items built INLINE with `price_data`, which have no stored product
+ * to inherit from.
+ *
+ * Managed Payments accepts only DIGITAL-SUPPLY codes. "Nontaxable"
+ * (txcd_00000000) is rejected as ineligible, which is why donations do not
+ * appear here — a tip is not a supply of anything, and rather than mislabel it
+ * as software to satisfy the check, that one session opts out of Managed
+ * Payments entirely. See the donate route.
+ *
+ * WHICH SaaS CODE IS A TAX DECISION, not a technical one: Stripe separates
+ * "business use" from "personal use" and some US states treat them
+ * differently. Business use is set here because the tool is bought by people
+ * running channels. Revisit with an accountant if that is wrong.
+ */
+export const TAX_CODE = {
+  SERVICE: "txcd_10103001",
+} as const;
+
+/**
  * Price IDs come from the Stripe dashboard; they differ per environment.
  *
  * One paid TIER (Pro) bought over two intervals. STRIPE_PRICE_PLUS is gone —

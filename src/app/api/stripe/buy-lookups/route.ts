@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { blockedMessage } from "@/lib/roles";
 import { db, users } from "@/db";
-import { stripe } from "@/lib/stripe";
+import { stripe, TAX_CODE } from "@/lib/stripe";
 import { getPack } from "@/lib/lookup-packs";
 
 /**
@@ -68,6 +68,8 @@ export async function POST(req: NextRequest) {
           product_data: {
             name: `${pack.credits} TubeData lookups`,
             description: "Prepaid lookups. Never expire. Used after your free daily allowance.",
+            // Required: without it Managed Payments rejects the session outright.
+            tax_code: TAX_CODE.SERVICE,
           },
         },
       },

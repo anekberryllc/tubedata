@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AuthHeader } from "@/components/AuthHeader";
 import { AuthDialogProvider } from "@/components/AuthDialog";
 import { PendingPurchase } from "@/components/PendingPurchase";
 import { SiteFooter } from "@/components/SiteFooter";
-import { BlockedNotice } from "@/components/BlockedNotice";
-import { auth, signIn } from "@/auth";
+import { signIn } from "@/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,13 +52,30 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
-  // One place to lock a suspended account out of every page, present and
-  // future. The header still renders, so they can read what happened and sign
-  // out. Real enforcement lives in the API routes — this is the explanation.
-  const session = await auth();
-  const blocked = !!session?.user?.blocked;
-
+/**
+ * ROOT LAYOUT — AND IT MUST NOT READ THE SESSION.
+ *
+ * It used to call `auth()` here to gate blocked accounts. That single line made
+ * every route in the application dynamic, because reading cookies during render
+ * opts a route out of prerendering — including the guides and the privacy page,
+ * which have no per-user content whatsoever and are exactly the pages search
+ * engines fetch.
+ *
+ * So the session-dependent parts moved down one level, into the two route
+ * groups:
+ *
+ *   (app)     — reads the session, renders the full header, and enforces the
+ *               blocked-account gate. Dynamic, as it always was.
+ *   (content) — reads nothing. Prerendered to static HTML at build time.
+ *
+ * Route groups do not appear in URLs, so nothing about the site's addresses
+ * changed. KEEP COOKIE AND HEADER READS OUT OF THIS FILE — anything added here
+ * that touches a request makes the whole site dynamic again, silently.
+ *
+ * What remains is safe: fonts, metadata, the dialog provider (which only holds
+ * a server action, never invoking it during render), and the footer.
+ */
+export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
@@ -77,12 +92,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         >
           {/* Resumes a purchase that was interrupted by the sign-in redirect. */}
           <PendingPurchase />
-          <AuthHeader />
-          {blocked ? (
-            <BlockedNotice reason={session?.user?.blockedReason ?? null} />
-          ) : (
-            children
-          )}
+          {children}
           <SiteFooter />
         </AuthDialogProvider>
       </body>

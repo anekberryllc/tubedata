@@ -42,6 +42,18 @@ export async function POST(req: NextRequest) {
         },
       },
     ],
+    /**
+     * A TIP IS NOT A TAXABLE SUPPLY, so this session opts out of Managed
+     * Payments rather than pretending a thank-you is a software licence.
+     *
+     * Managed Payments demands a tax code on every line item and accepts only
+     * digital-supply codes — "Nontaxable" is explicitly rejected as ineligible.
+     * The only two ways through are to tag a gratuity as SaaS and let Stripe
+     * collect tax on it, or to take this one session out of the managed flow.
+     * This is the second, and it also leaves donations behaving exactly as they
+     * did before the account switch.
+     */
+    managed_payments: { enabled: false },
     success_url: `${origin}/?donated=1`,
     cancel_url: `${origin}/`,
     metadata: {

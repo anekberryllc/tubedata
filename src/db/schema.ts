@@ -162,3 +162,54 @@ export const creditPurchases = pgTable("credit_purchases", {
 }, (t) => [
   index("credit_purchase_user_idx").on(t.userId, t.createdAt),
 ]);
+
+/**
+ * YouTube Data API keys, as a POOL rather than a single environment variable.
+ *
+ * WHY THIS IS A TABLE. A key's daily quota (10,000 units) is the hard ceiling
+ * on how much this site can serve, and the only ways past it are more keys or
+ * a quota increase from Google. Keeping keys in `YOUTUBE_API_KEY` meant a
+ * redeploy to rotate one and no way to hold a spare, so a spent quota was an
+ * outage until someone edited an env file.
+ *
+ * `key` IS A SECRET IN PLAINTEXT and this table is exactly as sensitive as
+ * DATABASE_URL. Nothing may ever select it into a client component — the admin
+ * screens read a masked projection, and the full value leaves the database
+ * only inside the server-side fetch. It is not hashed because it has to be
+ * replayed to Google on every call; hashing would make it useless.
+ *
+ * QUOTA IS NOT READABLE. Google exposes no endpoint for remaining quota, so
+ * `exhaustedAt` is set REACTIVELY, when a call comes back quotaExceeded, and a
+ * key is considered available again after the next Pacific midnight (which is
+ * when Google resets). `unitsToday` is our own count of calls we made and is
+ * therefore an estimate — anything else using the same key is invisible to it.
+ */
+export const apiKeys = pgTable("api_keys", {
+  id: serial("id").primaryKey(),
+  /** Human label, e.g. "project tubedata-1". Only for the admin screen. */
+  label: text("label").notNull(),
+  key: text("key").notNull().unique(),
+  /** Off means never use it. Survives quota resets; `exhaustedAt` does not. */
+  active: boolean("active").notNull().default(true),
+  /** Ascending try order. Lets an admin decide which key burns first. */
+  sortOrder: integer("sort_order").notNull().default(0),
+  /**
+   * When YouTube last said the daily quota was gone. Compared against the
+   * current Pacific day, so it self-clears at Google's reset rather than
+   * needing a job to come along and unset it.
+   */
+  exhaustedAt: timestamp("exhausted_at", { withTimezone: true }),
+  /** Set when the key is rejected outright (revoked, restricted, mistyped). */
+  invalidAt: timestamp("invalid_at", { withTimezone: true }),
+  /** Whatever Google said when it last refused. Shown to the admin verbatim. */
+  lastError: text("last_error"),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  /** Estimated units spent on `unitsDate`. Reset lazily, not by a job. */
+  unitsToday: integer("units_today").notNull().default(0),
+  /** The Pacific calendar day `unitsToday` counts, as YYYY-MM-DD. */
+  unitsDate: text("units_date"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by"),
+}, (t) => [
+  index("api_keys_order_idx").on(t.active, t.sortOrder),
+]);

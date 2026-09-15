@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { PRO_ALLOWANCE_LABEL } from "@/lib/limits";
+import { LogoMark } from "./Logo";
 
 function GoogleMark() {
   return (
@@ -133,9 +134,7 @@ export function AuthDialogProvider({
               </button>
 
               <div className="relative">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500 text-base font-black text-slate-950">
-                  T
-                </div>
+                <LogoMark className="h-10 w-10 shrink-0" />
 
                 <h2
                   id="auth-dialog-title"

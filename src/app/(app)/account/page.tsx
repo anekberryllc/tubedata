@@ -13,6 +13,7 @@ import {
   PRO_PRICE_CENTS,
   ANNUAL_SAVING_PERCENT,
   ANNUAL_MONTHLY_EQUIVALENT_CENTS,
+  TAX_NOTE,
 } from "@/lib/pricing";
 import { BuyLookups } from "@/components/BuyLookups";
 import {
@@ -163,6 +164,7 @@ export default async function AccountPage() {
                   Yearly saves {ANNUAL_SAVING_PERCENT}% —{" "}
                   {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo, billed once a year.
                   Same Pro either way; you can switch later from the billing portal.
+                  All prices {TAX_NOTE}.
                 </p>
               </>
             )}

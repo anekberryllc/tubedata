@@ -13,7 +13,7 @@ import { countOpenRefunds } from "@/lib/admin-refunds";
 export async function AdminNav({
   current,
 }: {
-  current: "overview" | "lookups" | "refunds";
+  current: "overview" | "lookups" | "refunds" | "keys";
 }) {
   const openRefunds = await countOpenRefunds();
 
@@ -40,6 +40,7 @@ export async function AdminNav({
       {item("/admin", "overview", "Overview & users")}
       {item("/admin/lookups", "lookups", "All lookups")}
       {item("/admin/refunds", "refunds", "Refunds", openRefunds)}
+      {item("/admin/keys", "keys", "API keys")}
     </nav>
   );
 }

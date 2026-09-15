@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { CopyButton } from "./CopyButton";
 import {
+  MAX_HASHTAGS,
   MAX_SEED_CHARS,
   MAX_TAGS_CHARS,
+  PROMINENT_HASHTAGS,
   packToBudget,
   tagsLength,
   type Tag,
@@ -25,6 +27,7 @@ type Result = {
   /** False when autocomplete was unreachable and these are template variants. */
   live: boolean;
   tags: Tag[];
+  hashtags: Tag[];
 };
 
 /** Chip hint per source. `suggest` is the one worth bragging about. */
@@ -41,6 +44,7 @@ export function TagGenerator() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [hashSelected, setHashSelected] = useState<Set<string>>(new Set());
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();
@@ -65,6 +69,11 @@ export function TagGenerator() {
       // them. Set here rather than in an effect so there is never a frame with
       // results on screen and nothing selected.
       setSelected(new Set(packToBudget(data.tags.map((t: Tag) => t.text))));
+      // Hashtags are capped by count, not characters, so the opening selection
+      // is simply the strongest fifteen.
+      setHashSelected(
+        new Set(data.hashtags.slice(0, MAX_HASHTAGS).map((t: Tag) => t.text))
+      );
     } catch {
       setError("Could not reach the server. Check your connection and try again.");
       setResult(null);
@@ -82,9 +91,30 @@ export function TagGenerator() {
     });
   }
 
+  /**
+   * The count cap is enforced HERE rather than reported afterwards. Fifteen is
+   * a cliff, not a budget: a sixteenth hashtag does not cost you the sixteenth,
+   * it costs you all of them. Nothing in this UI can put someone over it.
+   */
+  function toggleHashtag(text: string) {
+    setHashSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(text)) next.delete(text);
+      else if (next.size < MAX_HASHTAGS) next.add(text);
+      return next;
+    });
+  }
+
   // Selection order follows the RANKING, not the order things were clicked —
   // so what gets copied is stable and puts the strongest tags first.
   const chosen = (result?.tags ?? []).filter((t) => selected.has(t.text)).map((t) => t.text);
+
+  // Same rule for hashtags, and it carries more weight here: description order
+  // is what decides which three YouTube lifts above the title.
+  const chosenHashtags = (result?.hashtags ?? [])
+    .filter((t) => hashSelected.has(t.text))
+    .map((t) => t.text);
+  const hashFull = chosenHashtags.length >= MAX_HASHTAGS;
 
   const used = tagsLength(chosen);
   const over = used > MAX_TAGS_CHARS;
@@ -183,7 +213,7 @@ export function TagGenerator() {
           <div className="mt-6">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-medium text-slate-200">
-                Suggestions for &ldquo;{result.seed}&rdquo;
+                Tags for &ldquo;{result.seed}&rdquo;
               </h2>
               <p className="text-xs text-slate-600">Click a tag to add or remove it</p>
             </div>
@@ -234,6 +264,120 @@ export function TagGenerator() {
               </span>{" "}
               marks phrases people actually search for on YouTube. The rest are common
               phrasings and broad terms built from your topic.
+            </p>
+          </div>
+
+          {/* ---------- HASHTAGS ---------- */}
+          <div className="mt-10 border-t border-white/[0.07] pt-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-medium text-slate-200">
+                Hashtags for &ldquo;{result.seed}&rdquo;
+              </h2>
+              <p className="text-xs text-slate-600">
+                For the description — not the tag box
+              </p>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-200">
+                    {chosenHashtags.length} of {MAX_HASHTAGS} hashtags
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {hashFull
+                      ? "At the limit — past 15, YouTube ignores every hashtag on the video"
+                      : "Stay at or under 15, or YouTube ignores all of them"}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setHashSelected(
+                        new Set(result.hashtags.slice(0, MAX_HASHTAGS).map((t) => t.text))
+                      )
+                    }
+                    className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:border-white/25 hover:text-white"
+                  >
+                    Fill to {MAX_HASHTAGS}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHashSelected(new Set())}
+                    className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:border-white/25 hover:text-white"
+                  >
+                    Clear
+                  </button>
+                  {/* Space separated, because these get pasted into the
+                      description as a line of text, not into a tag field. */}
+                  <CopyButton
+                    text={() => chosenHashtags.join(" ")}
+                    label="Copy hashtags"
+                    copiedLabel="Copied"
+                    title="Copy the selected hashtags, space separated"
+                  />
+                </div>
+              </div>
+
+              {/* The three that actually get seen. Ordering hashtags is a real
+                  decision and invisible everywhere else, so it is shown. */}
+              {chosenHashtags.length > 0 && (
+                <div className="mt-4 rounded-xl border border-white/[0.06] bg-black/20 px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-600">
+                    Shown above your title
+                  </p>
+                  <p className="mt-1 truncate text-sm text-sky-300">
+                    {chosenHashtags.slice(0, PROMINENT_HASHTAGS).join(" ")}
+                  </p>
+                  {chosenHashtags.length > PROMINENT_HASHTAGS && (
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      The other {chosenHashtags.length - PROMINENT_HASHTAGS}
+                      {chosenHashtags.length - PROMINENT_HASHTAGS === 1 ? " sits" : " sit"} in
+                      the description, where they still count for search.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {result.hashtags.map((tag) => {
+                const on = hashSelected.has(tag.text);
+                // Disabled rather than silently ignored, so the cap explains
+                // itself before the click instead of after it.
+                const locked = !on && hashFull;
+                return (
+                  <button
+                    key={tag.text}
+                    type="button"
+                    onClick={() => toggleHashtag(tag.text)}
+                    aria-pressed={on}
+                    disabled={locked}
+                    title={
+                      locked
+                        ? `Deselect one first — ${MAX_HASHTAGS} is YouTube's limit`
+                        : SOURCE_LABEL[tag.source]
+                    }
+                    className={`rounded-lg px-2.5 py-1 text-xs ring-1 transition ${
+                      on
+                        ? "bg-indigo-400/[0.10] text-indigo-200 ring-indigo-400/20 hover:bg-indigo-400/[0.16]"
+                        : locked
+                          ? "cursor-not-allowed bg-white/[0.01] text-slate-700 ring-white/[0.04]"
+                          : "bg-white/[0.02] text-slate-500 ring-white/[0.07] hover:text-slate-300 hover:ring-white/20"
+                    }`}
+                  >
+                    {tag.text}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-4 text-xs leading-relaxed text-slate-600">
+              Paste these at the end of your description. The first three appear above
+              your title; all of them help YouTube place the video alongside the ones
+              already using the same hashtags.
             </p>
           </div>
         </div>

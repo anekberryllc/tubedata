@@ -36,3 +36,27 @@ export const ANNUAL_MONTHLY_EQUIVALENT_CENTS = Math.round(PRO_PRICE_CENTS.year /
 
 export const isBillingInterval = (x: unknown): x is BillingInterval =>
   x === "month" || x === "year";
+
+/**
+ * Every price on this site is TAX-EXCLUSIVE.
+ *
+ * Managed Payments is enabled on the Stripe account, so Stripe calculates
+ * sales tax from the customer's address and adds it on top. The first real
+ * subscription proved it: a $54 annual plan was charged at $57.38, $54.00
+ * subtotal plus $3.38 standard-rated tax. Advertising "$54" and taking $57.38
+ * with no warning is the kind of surprise that produces chargebacks, so every
+ * place a price is shown says this.
+ *
+ * WHY THE AMOUNT IS NOT SHOWN, only its existence: tax depends on where the
+ * customer is, and we do not know that until Stripe Checkout collects their
+ * address. Stripe shows the exact figure there, before they confirm. Anything
+ * we printed earlier would be a guess, and a guess about money is worse than
+ * an honest "it depends".
+ *
+ * Donations are exempt and must NOT carry this note — that route opts out of
+ * Managed Payments entirely, so a tip is charged at exactly its face value.
+ */
+export const TAX_NOTE = "plus tax where applicable, shown at checkout";
+
+/** The same point in the fewest words, for tight spaces beside a price. */
+export const TAX_NOTE_SHORT = "plus tax";

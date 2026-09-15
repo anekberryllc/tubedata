@@ -10,6 +10,7 @@ import {
   PRO_PRICE_CENTS,
   ANNUAL_SAVING_PERCENT,
   ANNUAL_MONTHLY_EQUIVALENT_CENTS,
+  TAX_NOTE,
 } from "@/lib/pricing";
 import {
   PRO_ALLOWANCE_LABEL,
@@ -365,6 +366,8 @@ export default function Home() {
                     <p className="text-center text-[11px] text-amber-200/60">
                       Save {ANNUAL_SAVING_PERCENT}% —{" "}
                       {formatUsd(ANNUAL_MONTHLY_EQUIVALENT_CENTS)}/mo billed yearly
+                      <br />
+                      <span className="text-amber-200/45">{TAX_NOTE}</span>
                     </p>
                     <UpgradeButton
                       interval="month"

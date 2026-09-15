@@ -1,6 +1,7 @@
 import { eq, desc } from "drizzle-orm";
 import { db, videos, videoStats, lookups } from "@/db";
-import { extractVideoId, fetchVideoMetadata, formatDuration, type VideoMetadata } from "./youtube";
+import { extractVideoId, formatDuration, type VideoMetadata } from "./youtube";
+import { fetchVideoWithPool } from "./youtube-pool";
 
 /** How long cached metadata stays fresh before we refetch. */
 const METADATA_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -117,7 +118,7 @@ export async function lookupVideo(
   // function is reached.
 
   // Cache miss or stale — spend the quota unit.
-  const result = await fetchVideoMetadata(sourceUrl);
+  const result = await fetchVideoWithPool(sourceUrl);
 
   if (!result.ok) {
     if (result.reason === "not_found") {
